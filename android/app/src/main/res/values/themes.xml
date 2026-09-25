@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.TpvComandas" parent="android:Theme.Material.NoActionBar" />
+</resources>

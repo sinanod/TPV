@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite no soporta enums nativos en Prisma: se guardan como String y se
+// validan en la capa de aplicación (ver src/types.ts).
+// Role: "ADMIN" | "WAITER" | "KITCHEN"
+// TableStatus: "FREE" | "OCCUPIED" | "BILL_REQUESTED"
+// OrderStatus: "OPEN" | "SENT" | "SERVED" | "PAID" | "CANCELLED"
+// LineStatus: "PENDING" | "SENT"
+// PrinterTag: "KITCHEN" | "BAR" | "NONE"
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  pin       String   @unique
+  role      String   @default("WAITER")
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model Zone {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  tables Table[]
+}
+
+model Table {
+  id       Int     @id @default(autoincrement())
+  number   Int
+  capacity Int     @default(4)
+  status   String  @default("FREE")
+  zoneId   Int
+  zone     Zone    @relation(fields: [zoneId], references: [id])
+  orders   Order[]
+
+  @@unique([zoneId, number])
+}
+
+model Category {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique
+  printerTag String    @default("NONE")
+  products   Product[]
+}
+
+model Product {
+  id         Int         @id @default(autoincrement())
+  name       String
+  price      Float
+  available  Boolean     @default(true)
+  categoryId Int
+  category   Category    @relation(fields: [categoryId], references: [id])
+  orderLines OrderLine[]
+}
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  status        String      @default("OPEN")
+  tableId       Int
+  table         Table       @relation(fields: [tableId], references: [id])
+  waiterId      Int
+  waiter        User        @relation(fields: [waiterId], references: [id])
+  lines         OrderLine[]
+  paymentMethod String?
+  createdAt     DateTime    @default(now())
+  closedAt      DateTime?
+}
+
+model OrderLine {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     Order    @relation(fields: [orderId], references: [id])
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  qty       Int
+  unitPrice Float
+  note      String?
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+}

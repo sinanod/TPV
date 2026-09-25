@@ -1,0 +1,23 @@
+{
+  "name": "tpv-desktop",
+  "version": "1.0.0",
+  "description": "App de escritorio TPV: arranca el servidor local y lo muestra como panel de control",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.1.2",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.tpv.desktop",
+    "productName": "TPV",
+    "files": ["main.js"],
+    "extraResources": [
+      { "from": "../server", "to": "server", "filter": ["dist/**", "prisma/**", "package.json", "node_modules/**"] },
+      { "from": "../web/dist", "to": "web/dist" }
+    ]
+  }
+}
