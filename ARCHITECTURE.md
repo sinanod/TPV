@@ -1,108 +1,140 @@
 # TPV — Arquitectura
 
-Réplica funcional de un TPV de hostelería estilo MissTipsi: un servidor local que
-corre en un PC de la sala (integrado en la app de escritorio), un panel web de
-control en tiempo real, y una app Android para que los camareros manden
-comandas desde la mesa.
+TPV de hostelería al estilo MissTipsi con dos niveles:
+
+- **En cada restaurante**, un TPV local completo: app de escritorio (que es
+  también el servidor) + app Android para los camareros. Es lo único que
+  opera: abrir mesas, comandas, envío a cocina/barra y cobro. Funciona sin
+  internet.
+- **En la nube (Azure)**, un único portal de administración para todos los
+  restaurantes. Cada restaurante entra con el usuario y contraseña que le da
+  el operador de la plataforma. El portal no hace operaciones de TPV: muestra
+  el estado en vivo y las ventas, y gestiona la configuración (carta, salón,
+  personal).
+
+```
+                        Azure (una instalación para todos)
+              +--------------------------------------------------+
+              |  cloud/server  (Express + Socket.IO + Prisma)     |
+              |     PostgreSQL, datos separados por restaurante  |
+              |  cloud/portal  (React, lo sirve cloud/server)     |
+              +------------------^-------------------^------------+
+          HTTPS: eventos arriba  |                   |  HTTPS
+          config abajo (socket)  |                   |  navegador del dueño
+                                 |                   |
+  Restaurante A                  |          Restaurante B ...
+  +------------------------------+----+
+  | desktop/ (Electron)               |
+  |   └─ server/  Node + SQLite  <--- LAN --- android/ (camareros)
+  |        └─ web/ (UI del TPV)       |
+  +-----------------------------------+
+```
 
 ## Componentes
 
-```
-                 +--------------------+
-                 |  Android (camarero)|
-                 |  Kotlin/Compose    |
-                 +---------+----------+
-                           | HTTP REST + Socket.IO (WiFi/LAN)
-                           v
-+----------------+   +----+-----------------------+
-|  Web control    |<->|  Servidor (Node/Express)   |
-|  React + Vite   |   |  + Socket.IO + SQLite      |
-+----------------+    +----------------------------+
-                           ^
-                           | el mismo proceso, embebido
-                 +---------+----------+
-                 |  App de escritorio  |
-                 |  Electron           |
-                 +--------------------+
-```
+| Carpeta | Dónde corre | Qué es |
+|---|---|---|
+| `server/` | PC del restaurante | API REST + Socket.IO + SQLite. Fuente de verdad de la operación. Sincroniza con la nube si está vinculado. |
+| `web/` | PC del restaurante | Interfaz del TPV (la sirve `server/`, la muestra `desktop/`). Incluye la pantalla de vinculación con el portal. |
+| `desktop/` | PC del restaurante | Electron: arranca `server/` y muestra `web/`. Enseña la IP local para la app Android. |
+| `android/` | Móviles de los camareros | Comandas contra el servidor local por la WiFi del local. |
+| `cloud/server/` | Azure | API multi-restaurante, sincronización, CLI de altas. |
+| `cloud/portal/` | Azure | Web de administración. |
 
-- **server/**: backend Node/TypeScript. Expone API REST + WebSocket (Socket.IO).
-  Es la fuente de verdad: mesas, productos, comandas, usuarios. Guarda todo en
-  SQLite (fichero local, sin dependencias externas). Es el proceso que la app
-  de escritorio arranca y al que se conectan tanto el panel web como los
-  móviles Android de la misma red local.
-- **web/**: SPA en React que consume la API del servidor y se suscribe a los
-  eventos de Socket.IO para reflejar el estado del salón (mesas libres,
-  ocupadas, cuenta pedida...) en tiempo real. Sirve tanto como "panel de
-  control" remoto (abierto en un navegador) como interfaz embebida en la app
-  de escritorio.
-- **desktop/**: shell de Electron que arranca el servidor Node en el mismo
-  proceso/máquina y carga el panel web como interfaz nativa de escritorio.
-  Así, "la app de escritorio funciona también como servidor para los
-  móviles": el móvil Android se conecta a la IP local de ese PC.
-- **android/**: app nativa (Kotlin + Jetpack Compose) para camareros. Login
-  por PIN, mapa de mesas, catálogo de productos por categorías, construir la
-  comanda y enviarla a cocina/barra. Se conecta al servidor por IP:puerto
-  configurable (descubrimiento manual, como MissTipsi).
+## Quién manda sobre qué
 
-## Modelo de datos (server/prisma/schema.prisma)
+| Dato | Fuente de verdad | Dirección |
+|---|---|---|
+| Carta, zonas/mesas, personal (PIN) | Portal | nube → local (snapshot completo versionado) |
+| Estado de mesas, comandas, cobros | TPV local | local → nube (eventos) |
 
-- `User`: camarero/admin, login por PIN, rol (`ADMIN` | `WAITER` | `KITCHEN`).
-- `Zone`: zona del salón (Terraza, Interior...).
-- `Table`: mesa (número, zona, capacidad, estado: `FREE` | `OCCUPIED` |
-  `BILL_REQUESTED`).
-- `Category`: familia de producto (Bebidas, Comida...), con `printerTag`
-  (cocina/barra) para saber a qué destino se manda al imprimir/notificar.
-- `Product`: nombre, precio, categoría, disponible sí/no.
-- `Order` (comanda): ligada a una mesa, estado (`OPEN` | `SENT` | `SERVED` |
-  `PAID` | `CANCELLED`), camarero, líneas.
-- `OrderLine`: producto, cantidad, precio unitario, nota, estado de envío
-  (`PENDING` | `SENT`) — permite mandar solo las líneas nuevas cuando se
-  añaden productos a una comanda ya abierta.
+Con el TPV sin vincular, todo es local (modo autónomo, con los datos de demo
+de `npm run seed`). Al vincularlo, la configuración local se sustituye por la
+del portal; lo anterior queda desactivado (`active = false`), no se borra,
+porque comandas antiguas lo referencian.
 
-## API REST (server)
+## Sincronización
 
-Base `http://<host>:4000/api`
+### Vincular (una vez por TPV)
 
-- `POST /auth/login` `{ pin }` → `{ token, user }`
-- `GET /zones` / `GET /tables` — estado actual de todas las mesas
-- `POST /tables/:id/open` — abre mesa (crea `Order` en `OPEN` si no existe)
-- `GET /categories` con productos anidados
-- `GET /orders/:tableId` — comanda activa de una mesa
-- `POST /orders/:id/lines` `{ productId, qty, note }` — añade línea(s)
-- `DELETE /orders/:id/lines/:lineId` — quita línea (solo si no enviada)
-- `POST /orders/:id/send` — marca líneas `PENDING` como `SENT` y emite evento
-  de cocina/barra
-- `POST /orders/:id/close` `{ paymentMethod }` — cobra y libera la mesa
-- `GET /dashboard/summary` — ventas del día, mesas ocupadas, ticket medio
+`POST /api/setup/cloud/link` en el servidor local con la URL del portal y el
+usuario/contraseña del restaurante → el servidor local llama a
+`POST /api/sync/register` en la nube, que devuelve un **token de dispositivo**
+(en la nube solo se guarda su hash). La contraseña no se almacena en el TPV.
+Solo se puede vincular sin mesas abiertas, y para desvincular hay que volver a
+dar la contraseña (cualquiera en la WiFi del local llega al servidor local).
 
-Autenticación: `Authorization: Bearer <token>` (JWT simple, sin expirar en
-turno). Todas las rutas devuelven JSON.
+### Subida: outbox
 
-## Eventos Socket.IO
+Cada cambio de mesa o comanda en el TPV encola un evento en la tabla
+`OutboxEvent` (SQLite) con el estado completo de esa mesa/comanda. Al encolar
+se descartan los pendientes con la misma clave, así una comanda editada 20
+veces sin conexión se envía una sola vez. Un worker los envía en lotes a
+`POST /api/sync/events` cada pocos segundos y los borra al confirmarse.
 
-Namespace `/realtime`, salas por `venue` (de momento una única sala global).
+- La nube aplica cada evento solo si es más reciente que lo que tiene
+  (`sourceAt`/`statusAt`): los reintentos y el desorden no hacen retroceder
+  el estado.
+- Un evento mal formado se rechaza individualmente; no bloquea la cola.
+- En cada reconexión el TPV reenvía el estado de todas las mesas y comandas
+  abiertas, así la nube converge aunque se haya perdido algo.
 
-- `table:updated` → `{ table }` (cambio de estado/ocupación)
-- `order:updated` → `{ order }` (líneas añadidas, importe, estado)
-- `order:sent` → `{ order, lines }` (para pantallas de cocina/barra, filtrable
-  por `printerTag`)
-- `order:closed` → `{ tableId }`
+Eventos:
 
-El cliente web y el cliente Android usan el mismo contrato de eventos.
+- `table.status` → `{ tableId (id de la nube), status }`
+- `order.upsert` → `{ localUuid, tableId, tableLabel, waiterName, status,
+  paymentMethod, total, openedAt, closedAt, lines[] }`. `tableLabel` y los
+  nombres de producto van copiados para que el informe de ventas no cambie
+  si luego se renombra o borra algo en la carta.
 
-## Puesta en marcha
+### Bajada: configuración
 
-```bash
-# servidor
-cd server && npm install && npm run dev     # http://localhost:4000
+Cada cambio en el portal incrementa `Tenant.configVersion` y emite
+`config:updated` por el namespace `/device` de Socket.IO. El TPV descarga el
+snapshot (`GET /api/sync/config`) y lo aplica en una transacción, haciendo
+upsert por `cloudId`. Además consulta la versión cada 5 minutos por si se
+perdió algún aviso. Al aplicarse, el servidor local emite `config:updated` a
+la UI del TPV y a Android, que recargan.
 
-# panel web
-cd web && npm install && npm run dev        # http://localhost:5173
+Si en el portal se da de baja a un camarero, su sesión en el TPV deja de
+valer al llegar la configuración.
 
-# escritorio (arranca el servidor embebido + shell nativo)
-cd desktop && npm install && npm run dev
+## Autenticación
 
-# android
-abrir android/ en Android Studio, configurar IP del servidor en el login
-```
+| Quién | Cómo | Token |
+|---|---|---|
+| Restaurante en el portal | usuario + contraseña (bcrypt), con rate limit | JWT 12 h, se revalida que la cuenta siga activa en cada petición |
+| TPV local frente a la nube | token de dispositivo aleatorio (256 bits) | revocable desde el portal |
+| Personal en el TPV local | PIN | JWT local 12 h, se revalida que el usuario siga activo |
+| Operador de la plataforma | CLI con acceso a la base de datos | — |
+
+Los tokens de portal y de dispositivo no son intercambiables.
+
+## API del servidor local (`server/`, puerto 4000)
+
+- `POST /api/auth/login { pin }` → `{ token, user }`
+- `GET /api/zones`, `GET /api/tables`, `GET /api/categories`
+- `POST /api/tables/:id/open`, `POST /api/tables/:id/request-bill`
+- `GET /api/orders/table/:tableId`, `GET /api/orders/:id`
+- `POST /api/orders/:id/lines`, `DELETE /api/orders/:id/lines/:lineId`
+- `POST /api/orders/:id/send`, `POST /api/orders/:id/close { paymentMethod }`
+- `GET /api/dashboard/summary`
+- Vinculación (sin PIN): `GET /api/setup/cloud`,
+  `POST /api/setup/cloud/link`, `POST /api/setup/cloud/unlink`,
+  `POST /api/setup/cloud/sync`
+
+Socket.IO `/realtime`: `table:updated`, `order:updated`, `order:sent`,
+`order:closed`, `config:updated`.
+
+## API de la nube (`cloud/server`, puerto 8080)
+
+- Portal: `POST /api/auth/login`, `GET /api/auth/me`,
+  `GET /api/portal/overview|floor|orders/open|sales`,
+  `DELETE /api/portal/devices/:id`, CRUD de
+  `/api/portal/categories|products|zones|tables|staff`, `GET /api/portal/catalog`
+- Sincronización: `POST /api/sync/register`, `GET /api/sync/config`,
+  `POST /api/sync/events`
+- Socket.IO `/portal` (token de portal): `live:updated`, `config:updated`,
+  `devices:updated`. `/device` (token de dispositivo): `config:updated`.
+
+Detalle de despliegue y operación: [`cloud/README.md`](./cloud/README.md).

@@ -60,6 +60,21 @@ export interface Order {
   waiter?: User;
 }
 
+export type CloudStatus =
+  | { linked: false }
+  | {
+      linked: true;
+      cloudUrl: string;
+      tenantName: string;
+      deviceName: string;
+      connected: boolean;
+      configVersion: number;
+      lastConfigAt: string | null;
+      lastSyncAt: string | null;
+      lastError: string | null;
+      pendingEvents: number;
+    };
+
 export interface DashboardSummary {
   ordersToday: number;
   revenueToday: number;

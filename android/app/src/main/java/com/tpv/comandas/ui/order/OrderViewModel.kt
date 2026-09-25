@@ -41,7 +41,7 @@ class OrderViewModel(private val container: AppContainer, private val tableId: I
         viewModelScope.launch {
             try {
                 val service = container.apiClient.service()
-                val categories = if (_state.value.categories.isEmpty()) service.categories() else _state.value.categories
+                val categories = service.categories()
                 var order = runCatching { service.orderForTable(tableId) }.getOrNull()
                 if (order == null) {
                     service.openTable(tableId)

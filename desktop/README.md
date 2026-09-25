@@ -14,6 +14,10 @@ cd ../desktop && npm install
 npm run dev
 ```
 
+Para conectar este TPV con el portal del restaurante: en la pantalla de login,
+«Portal: sin vincular · Configurar» → dirección del portal + usuario y
+contraseña del restaurante.
+
 ## Empaquetado
 
 ```bash
@@ -21,3 +25,8 @@ cd ../server && npm install && npm run build
 cd ../web && npm install && npm run build
 cd ../desktop && npm install && npm run build
 ```
+
+Pendiente antes de instalar en restaurantes: el instalador todavía no prepara
+la base de datos del servidor local (definir `DATABASE_URL` en la carpeta de
+datos del usuario, generar un `JWT_SECRET` propio y aplicar las migraciones al
+arrancar). En modo desarrollo se usa `server/.env`.

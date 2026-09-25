@@ -251,3 +251,112 @@ button {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Conexión con el portal */
+.login-card .cloud-badge {
+  margin-top: 0;
+  background: none;
+  border: 1px solid #333c4d;
+  color: #9aa4b2;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+}
+.modal {
+  background: #1e2430;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+.cloud-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.cloud-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #9aa4b2;
+}
+.cloud-form input {
+  padding: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #333c4d;
+  background: #14181f;
+  color: #fff;
+  font-size: 1rem;
+}
+.modal button:not(.link) {
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: none;
+  background: #4c8bf5;
+  color: white;
+  font-weight: 600;
+}
+.modal button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.modal button.danger {
+  background: #b8452f;
+}
+.hint {
+  color: #9aa4b2;
+  font-size: 0.85rem;
+  margin: 0;
+}
+.warning {
+  color: #ffd166;
+  font-size: 0.85rem;
+  margin: 0;
+}
+.cloud-status dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 1rem;
+  font-size: 0.9rem;
+}
+.cloud-status dt {
+  color: #9aa4b2;
+}
+.cloud-status dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cloud-status .ok {
+  color: #6fd08c;
+}
+.cloud-status > button {
+  width: 100%;
+}
+.cloud-form.unlink {
+  border-top: 1px solid #333c4d;
+  padding-top: 1rem;
+  margin-top: 1.25rem;
+}

@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Valores tipo enum guardados como String (mismo criterio que el servidor
+// local, para que los payloads de sincronización sean idénticos):
+// Staff.role:           "ADMIN" | "WAITER" | "KITCHEN"
+// Category.printerTag:  "KITCHEN" | "BAR" | "NONE"
+// DiningTable.status:   "FREE" | "OCCUPIED" | "BILL_REQUESTED"
+// Order.status:         "OPEN" | "SENT" | "SERVED" | "PAID" | "CANCELLED"
+
+// Restaurante. Solo lo da de alta el operador de la plataforma (CLI).
+model Tenant {
+  id            String   @id @default(uuid())
+  name          String
+  username      String   @unique
+  passwordHash  String
+  active        Boolean  @default(true)
+  configVersion Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  devices    Device[]
+  categories Category[]
+  products   Product[]
+  zones      Zone[]
+  tables     DiningTable[]
+  staff      Staff[]
+  orders     Order[]
+}
+
+// Servidor local de un restaurante vinculado a su cuenta.
+model Device {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String    @unique
+  lastSeenAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([tenantId])
+}
+
+// ---- Configuración (fuente de verdad: portal → servidor local) ----
+
+model Category {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String
+  printerTag String    @default("NONE")
+  sortOrder  Int       @default(0)
+  products   Product[]
+
+  @@unique([tenantId, name])
+}
+
+model Product {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name       String
+  price      Float
+  available  Boolean  @default(true)
+  sortOrder  Int      @default(0)
+
+  @@index([tenantId])
+}
+
+model Zone {
+  id        String        @id @default(uuid())
+  tenantId  String
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int           @default(0)
+  tables    DiningTable[]
+
+  @@unique([tenantId, name])
+}
+
+model DiningTable {
+  id       String    @id @default(uuid())
+  tenantId String
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId   String
+  zone     Zone      @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  number   Int
+  capacity Int       @default(4)
+  // Estado en vivo, lo reporta el servidor local
+  status   String    @default("FREE")
+  statusAt DateTime?
+  orders   Order[]
+
+  @@unique([zoneId, number])
+  @@index([tenantId])
+}
+
+model Staff {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  pin      String
+  role     String @default("WAITER")
+
+  @@unique([tenantId, pin])
+}
+
+// ---- Operación (fuente de verdad: servidor local → nube) ----
+
+model Order {
+  id            String       @id @default(uuid())
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  localUuid     String
+  tableId       String?
+  table         DiningTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  // Copia del nombre de mesa/camarero: el informe de ventas no debe cambiar
+  // si luego se borra o renombra la mesa en la configuración.
+  tableLabel    String
+  waiterName    String?
+  status        String
+  paymentMethod String?
+  total         Float        @default(0)
+  openedAt      DateTime
+  closedAt      DateTime?
+  // Marca temporal (del servidor local) del último evento aplicado: evita
+  // que un reintento antiguo pise un estado más reciente.
+  sourceAt      DateTime
+  lines         OrderLine[]
+
+  @@unique([tenantId, localUuid])
+  @@index([tenantId, status])
+  @@index([tenantId, closedAt])
+}
+
+model OrderLine {
+  id          String  @id @default(uuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  productName String
+  qty         Int
+  unitPrice   Float
+  note        String?
+  status      String
+}

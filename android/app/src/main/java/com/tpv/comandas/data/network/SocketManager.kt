@@ -20,7 +20,7 @@ class SocketManager(private val serverUrl: String) {
         val s = IO.socket("$serverUrl/realtime", opts)
         socket = s
 
-        val relevant = arrayOf("table:updated", "order:updated", "order:sent", "order:closed")
+        val relevant = arrayOf("table:updated", "order:updated", "order:sent", "order:closed", "config:updated")
         val listeners = relevant.map { event ->
             event to io.socket.emitter.Emitter.Listener { trySend(event) }
         }

@@ -48,12 +48,14 @@ export default function App() {
     socket.on("order:updated", refresh);
     socket.on("order:closed", refresh);
     socket.on("order:sent", refresh);
+    socket.on("config:updated", refresh);
 
     return () => {
       socket.off("table:updated", refresh);
       socket.off("order:updated", refresh);
       socket.off("order:closed", refresh);
       socket.off("order:sent", refresh);
+      socket.off("config:updated", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);

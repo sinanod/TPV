@@ -1,5 +1,5 @@
 import { getServerUrl } from "./config";
-import type { Category, DashboardSummary, Order, User, Zone } from "../types";
+import type { Category, CloudStatus, DashboardSummary, Order, User, Zone } from "../types";
 
 const TOKEN_KEY = "tpv_token";
 const USER_KEY = "tpv_user";
@@ -71,4 +71,10 @@ export const api = {
       body: JSON.stringify({ paymentMethod }),
     }),
   dashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
+  cloudStatus: () => request<CloudStatus>("/setup/cloud"),
+  cloudLink: (data: { cloudUrl: string; username: string; password: string; deviceName?: string }) =>
+    request<CloudStatus>("/setup/cloud/link", { method: "POST", body: JSON.stringify(data) }),
+  cloudUnlink: (password: string) =>
+    request<CloudStatus>("/setup/cloud/unlink", { method: "POST", body: JSON.stringify({ password }) }),
+  cloudSyncNow: () => request<CloudStatus>("/setup/cloud/sync", { method: "POST" }),
 };
