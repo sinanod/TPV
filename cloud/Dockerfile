@@ -1,5 +1,8 @@
 # Imagen del portal en la nube: API (cloud/server) + web del portal (cloud/portal)
 # Construir desde la carpeta cloud/:  docker build -t tpv-cloud .
+#
+# Prisma necesita `openssl` para detectar la versión de OpenSSL y elegir su
+# motor; la imagen slim no lo trae.
 
 FROM node:22-bookworm-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
