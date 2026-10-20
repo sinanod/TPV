@@ -4,15 +4,27 @@ import { HttpError } from "../http";
 import { emitEvent } from "../realtime";
 import { CloudError, cloudRequest, normalizeCloudUrl } from "./client";
 import { applyConfig, ConfigSnapshot } from "./config";
-import { enqueueOrder, enqueueSnapshot, enqueueTable } from "./outbox";
+import {
+  enqueueDevicePrinters,
+  enqueueInvoice,
+  enqueueInvoiceEmail,
+  enqueueOrder,
+  enqueuePaymentApplied,
+  enqueueSnapshot,
+  enqueueTable,
+} from "./outbox";
+import { publishPayment } from "../payments";
+import { registerPayment } from "../billing";
+import { getSettings, saveSettings } from "../settings";
 
 const FLUSH_INTERVAL_MS = 10_000;
-// Red de seguridad por si se pierde algún aviso `config:updated` por socket
+// Redes de seguridad por si se pierde algún aviso por socket
 const CONFIG_POLL_INTERVAL_MS = 5 * 60_000;
+const ONLINE_PAYMENTS_POLL_INTERVAL_MS = 60_000;
 const BATCH_SIZE = 200;
 const OPEN_STATUSES = ["OPEN", "SENT", "SERVED"];
 
-const state = { connected: false, flushing: false, pulling: false, pullAgain: false };
+const state = { connected: false, flushing: false, pulling: false, pullAgain: false, applyingPayments: false };
 let socket: Socket | null = null;
 let timers: NodeJS.Timeout[] = [];
 let kickTimer: NodeJS.Timeout | null = null;
@@ -104,11 +116,70 @@ async function pullConfig() {
   }
 }
 
+// ---------- Pagos del cliente desde su móvil ----------
+
+interface PendingOnlinePayment {
+  id: string;
+  orderLocalUuid: string;
+  amountCents: number;
+  email: string | null;
+}
+
+async function applyOnlinePayments() {
+  if (state.applyingPayments) return;
+  state.applyingPayments = true;
+  try {
+    const link = await getLink();
+    if (!link) return;
+    const pending = await cloudRequest<PendingOnlinePayment[]>(link.cloudUrl, "/api/sync/online-payments", {
+      token: link.deviceToken,
+    });
+    for (const p of pending) {
+      const order = await prisma.order.findUnique({ where: { uuid: p.orderLocalUuid } });
+      if (!order) {
+        await enqueuePaymentApplied({
+          onlinePaymentId: p.id,
+          result: "ORDER_NOT_FOUND",
+          refundCents: p.amountCents,
+          localPaymentUuid: null,
+        });
+        continue;
+      }
+      const result = await registerPayment(order.id, {
+        method: "ONLINE",
+        amountCents: p.amountCents,
+        email: p.email,
+        onlinePaymentId: p.id,
+      });
+      if (!result.duplicate) await publishPayment(result);
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { id: result.paymentId } });
+      await enqueuePaymentApplied({
+        onlinePaymentId: p.id,
+        result: result.refundCents > 0 ? "REFUND_REQUIRED" : "APPLIED",
+        refundCents: result.refundCents,
+        localPaymentUuid: payment.uuid,
+      });
+      emitEvent("payment:online", {
+        orderId: order.id,
+        tableId: order.tableId,
+        amountCents: p.amountCents - result.refundCents,
+        refundCents: result.refundCents,
+      });
+    }
+    if (pending.length) kick();
+  } catch (e) {
+    await setError(describe(e));
+  } finally {
+    state.applyingPayments = false;
+  }
+}
+
 // ---------- Ciclo de vida ----------
 
 async function onConnected() {
   await setError(null);
   await pullConfig();
+  await applyOnlinePayments();
   await enqueueSnapshot();
   await flush();
 }
@@ -139,8 +210,13 @@ export async function startSync() {
     );
   });
   socket.on("config:updated", () => void pullConfig());
+  socket.on("payments:pending", () => void applyOnlinePayments());
 
-  timers = [setInterval(() => void flush(), FLUSH_INTERVAL_MS), setInterval(() => void pullConfig(), CONFIG_POLL_INTERVAL_MS)];
+  timers = [
+    setInterval(() => void flush(), FLUSH_INTERVAL_MS),
+    setInterval(() => void pullConfig(), CONFIG_POLL_INTERVAL_MS),
+    setInterval(() => void applyOnlinePayments(), ONLINE_PAYMENTS_POLL_INTERVAL_MS),
+  ];
 }
 
 export function stopSync() {
@@ -170,6 +246,34 @@ export async function orderChanged(orderId: number) {
     if (await enqueueOrder(orderId)) kick();
   } catch (e) {
     console.error("[nube] no se pudo encolar la comanda", e);
+  }
+}
+
+export async function invoiceIssued(invoiceId: number) {
+  try {
+    if (!(await getLink())) return;
+    await enqueueInvoice(invoiceId);
+    kick();
+  } catch (e) {
+    console.error("[nube] no se pudo encolar la factura", e);
+  }
+}
+
+/** Devuelve false si no hay nube: sin ella no se puede enviar el email. */
+export async function invoiceEmailRequested(invoiceUuid: string, email: string) {
+  if (!(await getLink())) return false;
+  await enqueueInvoiceEmail(invoiceUuid, email);
+  kick();
+  return true;
+}
+
+export async function devicePrintersChanged(names: string[]) {
+  try {
+    if (!(await getLink())) return;
+    await enqueueDevicePrinters(names);
+    kick();
+  } catch (e) {
+    console.error("[nube] no se pudieron enviar las impresoras del sistema", e);
   }
 }
 
@@ -262,16 +366,25 @@ export async function unlinkFromCloud(password: string) {
   }
 
   await flush();
+  // Un registro VERI*FACTU generado tiene que llegar a la AEAT: no se puede
+  // descartar desvinculando.
+  if (await prisma.outboxEvent.count({ where: { type: "invoice.issued" } })) {
+    throw new HttpError(409, "Hay facturas pendientes de enviar a la nube. Espera a que se sincronicen y vuelve a intentarlo.");
+  }
   await cloudRequest(link.cloudUrl, `/api/portal/devices/${link.deviceId}`, { method: "DELETE", token: portalToken }).catch(
     () => {},
   );
   stopSync();
   await prisma.outboxEvent.deleteMany();
   await prisma.cloudLink.delete({ where: { id: 1 } });
+  // Sin nube no hay quien remita los registros a la AEAT
+  const settings = await getSettings();
+  await saveSettings(prisma, { ...settings, verifactu: { ...settings.verifactu, enabled: false } });
 }
 
 export async function syncNow() {
   await pullConfig();
+  await applyOnlinePayments();
   await flush();
   return cloudStatus();
 }

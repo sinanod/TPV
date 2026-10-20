@@ -44,6 +44,7 @@ portalRouter.get(
       devices: devices.map((d) => ({
         id: d.id,
         name: d.name,
+        invoiceSeries: `T${d.seriesNumber}`,
         online: isDeviceOnline(d.id),
         lastSeenAt: d.lastSeenAt,
         createdAt: d.createdAt,
@@ -124,14 +125,18 @@ portalRouter.get(
       where: { tenantId: req.tenantId!, status: "PAID", closedAt: { gte: from, lt: to } },
       orderBy: { closedAt: "desc" },
       take: MAX_TICKETS,
-      include: { lines: true },
+      include: { lines: true, payments: { orderBy: { createdAt: "asc" } } },
     });
 
     const revenue = tickets.reduce((s, t) => s + t.total, 0);
+    // Una cuenta dividida suma en cada forma de pago lo que se pagó con ella.
+    // Las comandas de antes de los pagos divididos no tienen pagos: cuentan enteras.
     const byPayment: Record<string, number> = {};
+    const add = (key: string, euros: number) => (byPayment[key] = round2((byPayment[key] ?? 0) + euros));
     for (const t of tickets) {
-      const key = t.paymentMethod ?? "OTHER";
-      byPayment[key] = round2((byPayment[key] ?? 0) + t.total);
+      const paid = t.payments.filter((p) => p.amountCents > 0);
+      if (paid.length) paid.forEach((p) => add(p.method, p.amountCents / 100));
+      else add(t.paymentMethod ?? "OTHER", t.total);
     }
 
     res.json({
@@ -144,6 +149,101 @@ portalRouter.get(
       truncated: tickets.length === MAX_TICKETS,
       tickets,
     });
+  }),
+);
+
+// ---------- Facturas y VERI*FACTU ----------
+
+const invoicesQuery = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  aeatStatus: z.enum(["PENDING", "CORRECT", "ACCEPTED_WITH_ERRORS", "REJECTED", "NOT_APPLICABLE"]).optional(),
+});
+
+portalRouter.get(
+  "/invoices",
+  h(async (req, res) => {
+    const { from, to, aeatStatus } = invoicesQuery.parse(req.query);
+    const invoices = await prisma.invoice.findMany({
+      where: { tenantId: req.tenantId!, issuedAt: { gte: from, lt: to }, ...(aeatStatus ? { aeatStatus } : {}) },
+      orderBy: { issuedAt: "desc" },
+      take: MAX_TICKETS,
+      include: { emails: { select: { to: true, status: true, lastError: true } }, submission: { select: { csv: true } } },
+    });
+    res.json(
+      invoices.map((i) => ({
+        id: i.id,
+        numSerie: i.numSerie,
+        issuedAt: i.issuedAt,
+        totalCents: i.totalCents,
+        taxCents: i.taxCents,
+        tableLabel: i.tableLabel,
+        waiterName: i.waiterName,
+        lines: i.lines,
+        payments: i.payments,
+        qrUrl: i.qrUrl,
+        environment: i.environment,
+        aeatStatus: i.aeatStatus,
+        aeatErrorCode: i.aeatErrorCode,
+        aeatError: i.aeatError,
+        aeatSentAt: i.aeatSentAt,
+        aeatCsv: i.submission?.csv ?? null,
+        emails: i.emails,
+      })),
+    );
+  }),
+);
+
+// Enviar (o reenviar) el ticket por email a un cliente
+portalRouter.post(
+  "/invoices/:id/email",
+  h(async (req, res) => {
+    const { email } = z.object({ email: z.string().trim().email() }).parse(req.body);
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: req.tenantId! } });
+    if (!invoice) throw new HttpError(404, "Factura no encontrada");
+    const to = email.toLowerCase();
+    await prisma.emailMessage.upsert({
+      where: { invoiceId_to: { invoiceId: invoice.id, to } },
+      create: { tenantId: req.tenantId!, invoiceId: invoice.id, to },
+      update: { status: "PENDING", attempts: 0, lastError: null, createdAt: new Date() },
+    });
+    res.status(202).json({ queued: true });
+  }),
+);
+
+portalRouter.get(
+  "/verifactu/submissions",
+  h(async (req, res) => {
+    const submissions = await prisma.aeatSubmission.findMany({
+      where: { tenantId: req.tenantId! },
+      orderBy: { sentAt: "desc" },
+      take: 30,
+      select: { id: true, environment: true, sentAt: true, status: true, csv: true, waitSeconds: true, records: true, error: true },
+    });
+    res.json(submissions);
+  }),
+);
+
+portalRouter.get(
+  "/online-payments",
+  h(async (req, res) => {
+    const payments = await prisma.onlinePayment.findMany({
+      where: { tenantId: req.tenantId!, status: "SUCCEEDED" },
+      orderBy: { paidAt: "desc" },
+      take: 100,
+      include: { table: { include: { zone: true } } },
+    });
+    res.json(
+      payments.map((p) => ({
+        id: p.id,
+        tableLabel: `${p.table.zone.name} · Mesa ${p.table.number}`,
+        amountCents: p.amountCents,
+        email: p.email,
+        paidAt: p.paidAt,
+        applyResult: p.applyResult,
+        refundCents: p.refundCents,
+      })),
+    );
   }),
 );
 

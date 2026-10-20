@@ -10,6 +10,8 @@ import { authRouter } from "./routes/auth";
 import { portalRouter } from "./routes/portal";
 import { adminRouter } from "./routes/admin";
 import { syncRouter } from "./routes/sync";
+import { settingsRouter } from "./routes/settings";
+import { publicRouter } from "./routes/public";
 
 export function createApp() {
   const app = express();
@@ -35,7 +37,9 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/portal", portalRouter);
   app.use("/api/portal", adminRouter);
+  app.use("/api/portal", settingsRouter);
   app.use("/api/sync", syncRouter);
+  app.use("/api/public", publicRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Ruta no encontrada" }));
 
   const portalDist = path.join(__dirname, "..", "..", "portal", "dist");

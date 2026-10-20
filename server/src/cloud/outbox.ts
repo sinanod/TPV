@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 
 const OPEN_STATUSES = ["OPEN", "SENT", "SERVED"];
+const toCents = (n: number) => Math.round(n * 100);
 
 export async function enqueue(key: string, type: string, data: unknown) {
   await prisma.$transaction([
@@ -17,6 +18,26 @@ export async function enqueueTable(tableId: number) {
   return true;
 }
 
+function paymentPayload(p: {
+  uuid: string;
+  method: string;
+  amount: number;
+  tendered: number | null;
+  refundAmount: number;
+  onlinePaymentId: string | null;
+  createdAt: Date;
+}) {
+  return {
+    uuid: p.uuid,
+    method: p.method,
+    amountCents: toCents(p.amount),
+    tenderedCents: p.tendered === null ? null : toCents(p.tendered),
+    refundCents: toCents(p.refundAmount),
+    onlinePaymentId: p.onlinePaymentId,
+    createdAt: p.createdAt.toISOString(),
+  };
+}
+
 export async function enqueueOrder(orderId: number) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -24,6 +45,8 @@ export async function enqueueOrder(orderId: number) {
       table: { include: { zone: true } },
       waiter: true,
       lines: { include: { product: true }, orderBy: { createdAt: "asc" } },
+      payments: { orderBy: { createdAt: "asc" } },
+      invoice: true,
     },
   });
   if (!order) return false;
@@ -35,9 +58,10 @@ export async function enqueueOrder(orderId: number) {
     waiterName: order.waiter.name,
     status: order.status,
     paymentMethod: order.paymentMethod,
-    total: Math.round(order.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0) * 100) / 100,
+    total: order.lines.reduce((s, l) => s + toCents(l.qty * l.unitPrice), 0) / 100,
     openedAt: order.createdAt.toISOString(),
     closedAt: order.closedAt?.toISOString() ?? null,
+    invoiceNumber: order.invoice?.numSerie ?? null,
     lines: order.lines.map((l) => ({
       productId: l.product.cloudId,
       productName: l.product.name,
@@ -46,8 +70,84 @@ export async function enqueueOrder(orderId: number) {
       note: l.note,
       status: l.status,
     })),
+    payments: order.payments.map(paymentPayload),
   });
   return true;
+}
+
+/**
+ * Factura emitida. El registro VERI*FACTU viaja tal cual se generó (XML,
+ * huella y QR): la nube lo remite a la AEAT sin regenerarlo. Nunca se
+ * deduplica con otros eventos, y la cola respeta el orden de la cadena.
+ */
+export async function enqueueInvoice(invoiceId: number) {
+  const invoice = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: {
+      order: {
+        include: {
+          table: { include: { zone: true } },
+          waiter: true,
+          lines: { include: { product: true }, orderBy: { createdAt: "asc" } },
+          payments: { orderBy: { createdAt: "asc" } },
+        },
+      },
+    },
+  });
+  const o = invoice.order;
+  const emails = [...new Set(o.payments.map((p) => p.email?.trim().toLowerCase()).filter((e): e is string => !!e))];
+
+  await enqueue(`invoice:${invoice.uuid}`, "invoice.issued", {
+    uuid: invoice.uuid,
+    orderUuid: o.uuid,
+    numSerie: invoice.numSerie,
+    issuedAt: invoice.issuedAt.toISOString(),
+    issueDate: invoice.issueDate,
+    totalCents: invoice.totalCents,
+    taxCents: invoice.taxCents,
+    breakdown: JSON.parse(invoice.breakdown),
+    tableLabel: `${o.table.zone.name} · Mesa ${o.table.number}`,
+    waiterName: o.waiter.name,
+    lines: o.lines.map((l) => ({
+      name: l.product.name,
+      qty: l.qty,
+      unitPrice: l.unitPrice,
+      taxRate: l.taxRate,
+      totalCents: toCents(l.qty * l.unitPrice),
+    })),
+    payments: o.payments.map(paymentPayload),
+    emails,
+    verifactu:
+      invoice.chainSeq === null
+        ? null
+        : {
+            chainSeq: invoice.chainSeq,
+            issuerNif: invoice.issuerNif,
+            hash: invoice.hash,
+            recordXml: invoice.recordXml,
+            qrUrl: invoice.qrUrl,
+            environment: invoice.environment,
+          },
+  });
+}
+
+/** El cliente pide el ticket por email después de cobrar. */
+export async function enqueueInvoiceEmail(invoiceUuid: string, email: string) {
+  await enqueue(`invoice-email:${invoiceUuid}:${email}`, "invoice.email", { invoiceUuid, email });
+}
+
+export async function enqueuePaymentApplied(data: {
+  onlinePaymentId: string;
+  result: "APPLIED" | "REFUND_REQUIRED" | "ORDER_NOT_FOUND";
+  refundCents: number;
+  localPaymentUuid: string | null;
+}) {
+  await enqueue(`online-payment:${data.onlinePaymentId}`, "payment.applied", data);
+}
+
+/** Impresoras instaladas en el PC: el portal las ofrece al configurar impresoras USB. */
+export async function enqueueDevicePrinters(names: string[]) {
+  await enqueue("device:printers", "device.printers", { systemPrinters: names });
 }
 
 /** Estado actual completo: se reenvía en cada reconexión para que la nube converja. */

@@ -10,7 +10,8 @@ datasource db {
 // Valores tipo enum guardados como String (mismo criterio que el servidor
 // local, para que los payloads de sincronización sean idénticos):
 // Staff.role:           "ADMIN" | "WAITER" | "KITCHEN"
-// Category.printerTag:  "KITCHEN" | "BAR" | "NONE"
+// Printer.type:         "NETWORK" | "SYSTEM"
+// Payment method:       "CASH" | "CARD" | "ONLINE"
 // DiningTable.status:   "FREE" | "OCCUPIED" | "BILL_REQUESTED"
 // Order.status:         "OPEN" | "SENT" | "SERVED" | "PAID" | "CANCELLED"
 
@@ -24,39 +25,104 @@ model Tenant {
   configVersion Int      @default(1)
   createdAt     DateTime @default(now())
 
-  devices    Device[]
-  categories Category[]
-  products   Product[]
-  zones      Zone[]
-  tables     DiningTable[]
-  staff      Staff[]
-  orders     Order[]
+  settings       TenantSettings?
+  devices        Device[]
+  printers       Printer[]
+  categories     Category[]
+  products       Product[]
+  zones          Zone[]
+  tables         DiningTable[]
+  staff          Staff[]
+  orders         Order[]
+  invoices       Invoice[]
+  onlinePayments OnlinePayment[]
+  emails         EmailMessage[]
+  submissions    AeatSubmission[]
+}
+
+// Datos fiscales, ticket, VERI*FACTU y cobro online de un restaurante.
+model TenantSettings {
+  tenantId         String   @id
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Nombre comercial (cabecera del ticket); si está vacío se usa Tenant.name
+  tradeName        String   @default("")
+  legalName        String   @default("")
+  nif              String   @default("")
+  address          String   @default("")
+  ticketFooter     String   @default("¡Gracias por su visita!")
+  receiptPrinterId String?
+  receiptPrinter   Printer? @relation("ReceiptPrinter", fields: [receiptPrinterId], references: [id], onDelete: SetNull)
+
+  verifactuEnabled     Boolean   @default(false)
+  // "TEST" (portal de pruebas externas de la AEAT) | "PRODUCTION"
+  verifactuEnvironment String    @default("TEST")
+  // Último día de uso tras renunciar (se comunica a la AEAT como FechaFinVeriFactu)
+  verifactuEndDate     DateTime? @db.Date
+  // Primer envío efectivo en producción: desde ahí no se puede renunciar
+  // hasta el 31/12 de ese año
+  verifactuFirstSentAt DateTime?
+  // "PERSONAL" (certificado de persona o representante) | "SELLO" (sello electrónico)
+  certificateKind      String    @default("PERSONAL")
+  // PFX y contraseña cifrados con CERT_ENCRYPTION_KEY (AES-256-GCM)
+  certificatePfx       Bytes?
+  certificatePassword  Bytes?
+  certificateSubject   String?
+  certificateNotAfter  DateTime?
+  // Control de flujo de la AEAT (TiempoEsperaEnvio)
+  aeatNextSendAt       DateTime?
+  aeatLastError        String?
+
+  onlinePaymentsEnabled Boolean @default(false)
 }
 
 // Servidor local de un restaurante vinculado a su cuenta.
 model Device {
-  id         String    @id @default(uuid())
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name       String
-  tokenHash  String    @unique
-  lastSeenAt DateTime?
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id             String    @id @default(uuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  tokenHash      String    @unique
+  // Serie de facturas del dispositivo: T1, T2... (cada instalación numera aparte)
+  seriesNumber   Int
+  // Impresoras instaladas en ese PC (para configurar las USB desde el portal)
+  systemPrinters String[]  @default([])
+  lastSeenAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  invoices       Invoice[]
 
+  @@unique([tenantId, seriesNumber])
   @@index([tenantId])
 }
 
 // ---- Configuración (fuente de verdad: portal → servidor local) ----
 
-model Category {
-  id         String    @id @default(uuid())
+model Printer {
+  id         String           @id @default(uuid())
   tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name       String
-  printerTag String    @default("NONE")
-  sortOrder  Int       @default(0)
-  products   Product[]
+  type       String           @default("NETWORK")
+  // IP/host (NETWORK) o nombre de la impresora en el PC del TPV (SYSTEM)
+  address    String
+  port       Int              @default(9100)
+  width      Int              @default(80)
+  categories Category[]
+  receiptOf  TenantSettings[] @relation("ReceiptPrinter")
+
+  @@unique([tenantId, name])
+}
+
+// Familia de productos: decide en qué impresora sale cada línea de la comanda
+model Category {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int       @default(0)
+  printerId String?
+  printer   Printer?  @relation(fields: [printerId], references: [id], onDelete: SetNull)
+  products  Product[]
 
   @@unique([tenantId, name])
 }
@@ -69,6 +135,8 @@ model Product {
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   name       String
   price      Float
+  // IVA en %; el precio lo incluye
+  taxRate    Float    @default(10)
   available  Boolean  @default(true)
   sortOrder  Int      @default(0)
 
@@ -87,17 +155,20 @@ model Zone {
 }
 
 model DiningTable {
-  id       String    @id @default(uuid())
-  tenantId String
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  zoneId   String
-  zone     Zone      @relation(fields: [zoneId], references: [id], onDelete: Restrict)
-  number   Int
-  capacity Int       @default(4)
+  id             String          @id @default(uuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId         String
+  zone           Zone            @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  number         Int
+  capacity       Int             @default(4)
   // Estado en vivo, lo reporta el servidor local
-  status   String    @default("FREE")
-  statusAt DateTime?
-  orders   Order[]
+  status         String          @default("FREE")
+  statusAt       DateTime?
+  // Token del QR de la mesa para que el cliente pague desde su móvil
+  qrToken        String          @unique @default(uuid())
+  orders         Order[]
+  onlinePayments OnlinePayment[]
 
   @@unique([zoneId, number])
   @@index([tenantId])
@@ -117,25 +188,27 @@ model Staff {
 // ---- Operación (fuente de verdad: servidor local → nube) ----
 
 model Order {
-  id            String       @id @default(uuid())
+  id            String         @id @default(uuid())
   tenantId      String
-  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   localUuid     String
   tableId       String?
-  table         DiningTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  table         DiningTable?   @relation(fields: [tableId], references: [id], onDelete: SetNull)
   // Copia del nombre de mesa/camarero: el informe de ventas no debe cambiar
   // si luego se borra o renombra la mesa en la configuración.
   tableLabel    String
   waiterName    String?
   status        String
   paymentMethod String?
-  total         Float        @default(0)
+  total         Float          @default(0)
   openedAt      DateTime
   closedAt      DateTime?
+  invoiceNumber String?
   // Marca temporal (del servidor local) del último evento aplicado: evita
   // que un reintento antiguo pise un estado más reciente.
   sourceAt      DateTime
   lines         OrderLine[]
+  payments      OrderPayment[]
 
   @@unique([tenantId, localUuid])
   @@index([tenantId, status])
@@ -152,4 +225,124 @@ model OrderLine {
   unitPrice   Float
   note        String?
   status      String
+}
+
+model OrderPayment {
+  id              String   @id @default(uuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  localUuid       String
+  method          String
+  amountCents     Int
+  tenderedCents   Int?
+  refundCents     Int      @default(0)
+  onlinePaymentId String?
+  createdAt       DateTime
+
+  @@index([orderId])
+}
+
+// Factura emitida por un TPV. recordXml es el registro VERI*FACTU tal cual lo
+// generó el TPV: se remite a la AEAT sin modificarlo.
+model Invoice {
+  id             String          @id @default(uuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deviceId       String
+  device         Device          @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  localUuid      String
+  orderLocalUuid String
+  numSerie       String
+  issuedAt       DateTime
+  issueDate      String
+  totalCents     Int
+  taxCents       Int
+  breakdown      Json
+  tableLabel     String
+  waiterName     String?
+  lines          Json
+  payments       Json
+  // VERI*FACTU (nulos si el restaurante no lo usa)
+  chainSeq       Int?
+  issuerNif      String?
+  hash           String?
+  recordXml      String?
+  qrUrl          String?
+  environment    String?
+  // PENDING | CORRECT | ACCEPTED_WITH_ERRORS | REJECTED | NOT_APPLICABLE
+  aeatStatus     String          @default("NOT_APPLICABLE")
+  aeatErrorCode  String?
+  aeatError      String?
+  aeatSentAt     DateTime?
+  submissionId   String?
+  submission     AeatSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  receivedAt     DateTime        @default(now())
+  emails         EmailMessage[]
+
+  @@unique([tenantId, localUuid])
+  @@unique([tenantId, numSerie])
+  @@index([tenantId, aeatStatus])
+  @@index([tenantId, issuedAt])
+}
+
+// Cada envío a la AEAT: guarda el CSV (justificante) y la respuesta.
+model AeatSubmission {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  environment String
+  sentAt      DateTime  @default(now())
+  // Correcto | ParcialmenteCorrecto | Incorrecto | ERROR (no hubo respuesta válida)
+  status      String
+  csv         String?
+  waitSeconds Int?
+  records     Int
+  error       String?
+  responseXml String?
+  invoices    Invoice[]
+
+  @@index([tenantId, sentAt])
+}
+
+// Pago hecho por un cliente desde su móvil (QR de la mesa).
+model OnlinePayment {
+  id               String      @id @default(uuid())
+  tenantId         String
+  tenant           Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tableId          String
+  table            DiningTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  orderLocalUuid   String
+  amountCents      Int
+  email            String?
+  // CREATED | SUCCEEDED | FAILED | CANCELLED
+  status           String      @default("CREATED")
+  provider         String
+  providerRef      String?
+  createdAt        DateTime    @default(now())
+  paidAt           DateTime?
+  // Lo confirma el TPV al registrarlo: APPLIED | REFUND_REQUIRED | ORDER_NOT_FOUND
+  appliedAt        DateTime?
+  applyResult      String?
+  refundCents      Int         @default(0)
+  localPaymentUuid String?
+
+  @@index([tenantId, status])
+}
+
+model EmailMessage {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  to        String
+  // PENDING | SENT | FAILED
+  status    String    @default("PENDING")
+  attempts  Int       @default(0)
+  lastError String?
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@unique([invoiceId, to])
+  @@index([status, createdAt])
 }

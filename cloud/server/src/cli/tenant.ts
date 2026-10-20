@@ -62,9 +62,13 @@ async function seedDemoConfig(tenantId: string) {
     ],
   });
 
-  const bebidas = await prisma.category.create({ data: { tenantId, name: "Bebidas", printerTag: "BAR", sortOrder: 0 } });
-  const comida = await prisma.category.create({ data: { tenantId, name: "Comida", printerTag: "KITCHEN", sortOrder: 1 } });
-  const postres = await prisma.category.create({ data: { tenantId, name: "Postres", printerTag: "KITCHEN", sortOrder: 2 } });
+  // Impresoras de ejemplo: hay que poner las IP reales desde el portal
+  const cocina = await prisma.printer.create({ data: { tenantId, name: "Cocina", address: "192.168.1.200" } });
+  const barra = await prisma.printer.create({ data: { tenantId, name: "Barra", address: "192.168.1.201" } });
+
+  const bebidas = await prisma.category.create({ data: { tenantId, name: "Bebidas", printerId: barra.id, sortOrder: 0 } });
+  const comida = await prisma.category.create({ data: { tenantId, name: "Comida", printerId: cocina.id, sortOrder: 1 } });
+  const postres = await prisma.category.create({ data: { tenantId, name: "Postres", printerId: cocina.id, sortOrder: 2 } });
   await prisma.product.createMany({
     data: [
       { tenantId, categoryId: bebidas.id, name: "Caña", price: 2.2 },

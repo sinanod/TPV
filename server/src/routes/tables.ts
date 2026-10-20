@@ -4,6 +4,7 @@ import { requireAuth } from "../auth";
 import { emitEvent } from "../realtime";
 import { h, HttpError } from "../http";
 import { orderChanged, tableChanged } from "../cloud/sync";
+import { printBill } from "../printing/service";
 
 export const tablesRouter = Router();
 
@@ -80,6 +81,12 @@ tablesRouter.post(
     });
     emitEvent("table:updated", { table });
     await tableChanged(table.id);
-    res.json({ table });
+    // Si hay comanda e impresora de tickets, sale la cuenta para el cliente
+    const order = await prisma.order.findFirst({
+      where: { tableId: table.id, status: { in: ["OPEN", "SENT", "SERVED"] } },
+      select: { id: true },
+    });
+    const billPrint = order ? await printBill(order.id) : null;
+    res.json({ table, billPrint });
   }),
 );

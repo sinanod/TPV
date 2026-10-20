@@ -1,12 +1,16 @@
 import { prisma } from "./db";
 
 async function main() {
+  await prisma.payment.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.printJob.deleteMany();
   await prisma.orderLine.deleteMany();
   await prisma.order.deleteMany();
   await prisma.table.deleteMany();
   await prisma.zone.deleteMany();
   await prisma.product.deleteMany();
   await prisma.category.deleteMany();
+  await prisma.printer.deleteMany();
   await prisma.user.deleteMany();
 
   await prisma.user.createMany({
@@ -32,9 +36,9 @@ async function main() {
     ],
   });
 
-  const bebidas = await prisma.category.create({ data: { name: "Bebidas", printerTag: "BAR" } });
-  const comida = await prisma.category.create({ data: { name: "Comida", printerTag: "KITCHEN" } });
-  const postres = await prisma.category.create({ data: { name: "Postres", printerTag: "KITCHEN" } });
+  const bebidas = await prisma.category.create({ data: { name: "Bebidas" } });
+  const comida = await prisma.category.create({ data: { name: "Comida" } });
+  const postres = await prisma.category.create({ data: { name: "Postres" } });
 
   await prisma.product.createMany({
     data: [

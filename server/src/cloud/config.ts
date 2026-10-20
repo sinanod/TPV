@@ -1,13 +1,31 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { BusinessInfo, getSettings, saveSettings, SifProducer } from "../settings";
+import type { AeatEnvironment } from "../fiscal/verifactu";
 
 export interface ConfigSnapshot {
   version: number;
-  categories: { id: string; name: string; printerTag: string; sortOrder: number }[];
-  products: { id: string; categoryId: string; name: string; price: number; available: boolean; sortOrder: number }[];
+  printers: { id: string; name: string; type: string; address: string; port: number; width: number }[];
+  categories: { id: string; name: string; sortOrder: number; printerId: string | null }[];
+  products: {
+    id: string;
+    categoryId: string;
+    name: string;
+    price: number;
+    available: boolean;
+    sortOrder: number;
+    taxRate: number;
+  }[];
   zones: { id: string; name: string; sortOrder: number }[];
   tables: { id: string; zoneId: string; number: number; capacity: number }[];
   staff: { id: string; name: string; pin: string; role: string }[];
+  settings: {
+    receiptPrinterId: string | null;
+    business: BusinessInfo | null;
+    verifactu: { enabled: boolean; environment: AeatEnvironment; endDate: string | null };
+    sif: SifProducer | null;
+  };
+  device: { invoiceSeries: string; installationNumber: string };
 }
 
 // Lo que no está en el snapshot (borrado en el portal, o creado aquí antes de
@@ -29,19 +47,41 @@ async function upsertMap<T extends { id: string }>(
 export async function applyConfig(snapshot: ConfigSnapshot) {
   await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
-      const categoryIds = await upsertMap(snapshot.categories, (c) =>
-        tx.category.upsert({
+      const printerIds = await upsertMap(snapshot.printers, (p) => {
+        const fields = { name: p.name, type: p.type, address: p.address, port: p.port, width: p.width };
+        return tx.printer.upsert({
+          where: { cloudId: p.id },
+          create: { cloudId: p.id, ...fields },
+          update: { ...fields, active: true },
+        });
+      });
+      await tx.printer.updateMany({ where: deactivateMissing(snapshot.printers.map((p) => p.id)), data: { active: false } });
+
+      const categoryIds = await upsertMap(snapshot.categories, (c) => {
+        const fields = {
+          name: c.name,
+          sortOrder: c.sortOrder,
+          printerId: c.printerId ? (printerIds.get(c.printerId) ?? null) : null,
+        };
+        return tx.category.upsert({
           where: { cloudId: c.id },
-          create: { cloudId: c.id, name: c.name, printerTag: c.printerTag, sortOrder: c.sortOrder },
-          update: { name: c.name, printerTag: c.printerTag, sortOrder: c.sortOrder, active: true },
-        }),
-      );
+          create: { cloudId: c.id, ...fields },
+          update: { ...fields, active: true },
+        });
+      });
       await tx.category.updateMany({ where: deactivateMissing(snapshot.categories.map((c) => c.id)), data: { active: false } });
 
       for (const p of snapshot.products) {
         const categoryId = categoryIds.get(p.categoryId);
         if (categoryId === undefined) continue;
-        const fields = { name: p.name, price: p.price, available: p.available, sortOrder: p.sortOrder, categoryId };
+        const fields = {
+          name: p.name,
+          price: p.price,
+          available: p.available,
+          sortOrder: p.sortOrder,
+          taxRate: p.taxRate,
+          categoryId,
+        };
         await tx.product.upsert({
           where: { cloudId: p.id },
           create: { cloudId: p.id, ...fields },
@@ -80,6 +120,17 @@ export async function applyConfig(snapshot: ConfigSnapshot) {
         });
       }
       await tx.user.updateMany({ where: deactivateMissing(snapshot.staff.map((s) => s.id)), data: { active: false } });
+
+      const st = snapshot.settings;
+      await saveSettings(tx, {
+        ...(await getSettings(tx)),
+        invoiceSeries: snapshot.device.invoiceSeries,
+        installationNumber: snapshot.device.installationNumber,
+        receiptPrinterId: st.receiptPrinterId ? (printerIds.get(st.receiptPrinterId) ?? null) : null,
+        business: st.business,
+        verifactu: st.verifactu,
+        sif: st.sif,
+      });
 
       await tx.cloudLink.update({
         where: { id: 1 },

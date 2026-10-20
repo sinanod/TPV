@@ -13,7 +13,9 @@ datasource db {
 // TableStatus: "FREE" | "OCCUPIED" | "BILL_REQUESTED"
 // OrderStatus: "OPEN" | "SENT" | "SERVED" | "PAID" | "CANCELLED"
 // LineStatus: "PENDING" | "SENT"
-// PrinterTag: "KITCHEN" | "BAR" | "NONE"
+// PaymentMethod: "CASH" | "CARD" | "ONLINE"
+// PrinterType: "NETWORK" (ESC/POS por TCP) | "SYSTEM" (instalada en el PC, vía la app de escritorio)
+// PrintJobKind: "KITCHEN" | "RECEIPT" | "BILL" | "TEST"; status "PENDING" | "DONE" | "ERROR" | "DISMISSED"
 //
 // Configuración (User, Zone, Table, Category, Product): cuando el servidor
 // está vinculado a la nube, la fuente de verdad es el portal. `cloudId` es
@@ -54,14 +56,31 @@ model Table {
   orders   Order[]
 }
 
+// Familia de productos. Decide en qué impresora sale cada línea de la comanda.
 model Category {
-  id         Int       @id @default(autoincrement())
-  cloudId    String?   @unique
-  active     Boolean   @default(true)
+  id        Int       @id @default(autoincrement())
+  cloudId   String?   @unique
+  active    Boolean   @default(true)
+  name      String
+  sortOrder Int       @default(0)
+  printerId Int?
+  printer   Printer?  @relation(fields: [printerId], references: [id])
+  products  Product[]
+}
+
+model Printer {
+  id         Int        @id @default(autoincrement())
+  cloudId    String?    @unique
+  active     Boolean    @default(true)
   name       String
-  printerTag String    @default("NONE")
-  sortOrder  Int       @default(0)
-  products   Product[]
+  type       String     @default("NETWORK")
+  // IP o nombre de host (NETWORK) o nombre de la impresora en el sistema (SYSTEM)
+  address    String
+  port       Int        @default(9100)
+  // Ancho del papel en mm: 58 u 80
+  width      Int        @default(80)
+  categories Category[]
+  printJobs  PrintJob[]
 }
 
 model Product {
@@ -72,6 +91,8 @@ model Product {
   price      Float
   available  Boolean     @default(true)
   sortOrder  Int         @default(0)
+  // IVA en %; el precio lo incluye
+  taxRate    Float       @default(10)
   categoryId Int
   category   Category    @relation(fields: [categoryId], references: [id])
   orderLines OrderLine[]
@@ -87,6 +108,9 @@ model Order {
   waiterId      Int
   waiter        User        @relation(fields: [waiterId], references: [id])
   lines         OrderLine[]
+  payments      Payment[]
+  invoice       Invoice?
+  // Resumen para listados: CASH | CARD | ONLINE | MIXED
   paymentMethod String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @default(now()) @updatedAt
@@ -101,6 +125,9 @@ model OrderLine {
   product   Product  @relation(fields: [productId], references: [id])
   qty       Int
   unitPrice Float
+  // Copia del IVA del producto al añadir la línea: si cambia en la carta, no
+  // altera comandas abiertas.
+  taxRate   Float    @default(10)
   note      String?
   status    String   @default("PENDING")
   createdAt DateTime @default(now())
@@ -136,4 +163,77 @@ model OutboxEvent {
   createdAt DateTime @default(now())
 
   @@index([key])
+}
+
+model Payment {
+  id              Int      @id @default(autoincrement())
+  uuid            String   @unique @default(uuid())
+  orderId         Int
+  order           Order    @relation(fields: [orderId], references: [id])
+  method          String
+  // Importe aplicado a la cuenta
+  amount          Float
+  // Efectivo entregado por el cliente (para el cambio)
+  tendered        Float?
+  // Para enviarle el ticket
+  email           String?
+  waiterId        Int?
+  // Pago hecho por el cliente desde su móvil (id en la nube)
+  onlinePaymentId String?  @unique
+  // Parte de un pago online que no se pudo aplicar (la cuenta ya estaba
+  // cobrada o se pagó de más): el restaurante debe devolverla
+  refundAmount    Float    @default(0)
+  createdAt       DateTime @default(now())
+}
+
+// Factura simplificada (F2) emitida al cobrar la cuenta completa.
+model Invoice {
+  id          Int      @id @default(autoincrement())
+  uuid        String   @unique @default(uuid())
+  orderId     Int      @unique
+  order       Order    @relation(fields: [orderId], references: [id])
+  // Serie del dispositivo + año, p. ej. "T1-2026"
+  series      String
+  number      Int
+  numSerie    String   @unique
+  issuedAt    DateTime
+  // DD-MM-AAAA tal como consta en el registro
+  issueDate   String
+  totalCents  Int
+  taxCents    Int
+  // JSON: [{ rate, baseCents, quotaCents }]
+  breakdown   String
+  // Registro VERI*FACTU; nulos si el restaurante no lo tiene activado.
+  // chainSeq ordena la cadena de registros de esta instalación.
+  chainSeq    Int?     @unique
+  issuerNif   String?
+  hash        String?
+  recordXml   String?
+  qrUrl       String?
+  environment String?
+  createdAt   DateTime @default(now())
+
+  @@unique([series, number])
+}
+
+model PrintJob {
+  id        Int      @id @default(autoincrement())
+  printerId Int?
+  printer   Printer? @relation(fields: [printerId], references: [id])
+  kind      String
+  title     String
+  // JSON del documento (bloques) para poder reintentar
+  document  String
+  status    String   @default("PENDING")
+  error     String?
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Ajustes que llegan del portal (datos fiscales, Verifactu, serie de
+// facturas...). Una sola fila; sobrevive a desvincular el TPV.
+model LocalSettings {
+  id   Int    @id @default(1)
+  json String
 }
