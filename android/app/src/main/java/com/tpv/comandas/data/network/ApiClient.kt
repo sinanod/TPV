@@ -38,7 +38,8 @@ class ApiClient(private val prefs: Prefs) {
 
             val okHttpClient = OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
+                // Enviar una comanda espera a las impresoras (hasta 30 s si es USB)
+                .readTimeout(45, TimeUnit.SECONDS)
                 .addInterceptor(authInterceptor)
                 .addInterceptor(logging)
                 .build()

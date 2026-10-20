@@ -14,10 +14,28 @@
   "build": {
     "appId": "com.tpv.desktop",
     "productName": "TPV",
-    "files": ["main.js"],
+    "files": [
+      "main.js",
+      "printAgent.js"
+    ],
     "extraResources": [
-      { "from": "../server", "to": "server", "filter": ["dist/**", "prisma/**", "package.json", "node_modules/**"] },
-      { "from": "../web/dist", "to": "web/dist" }
+      {
+        "from": "../server",
+        "to": "server",
+        "filter": [
+          "dist/**",
+          "prisma/**",
+          "package.json",
+          "node_modules/**"
+        ]
+      },
+      {
+        "from": "../web/dist",
+        "to": "web/dist"
+      }
     ]
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.4"
   }
 }

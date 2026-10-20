@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -16,7 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -26,11 +27,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tpv.comandas.AppContainer
 import com.tpv.comandas.data.model.Product
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
     container: AppContainer,
@@ -41,8 +44,12 @@ fun OrderScreen(
     val viewModel: OrderViewModel = viewModel(factory = OrderViewModel.factory(container, tableId))
     val state by viewModel.state.collectAsState()
 
+    val context = LocalContext.current
     LaunchedEffect(state.closed) {
-        if (state.closed) onBack()
+        if (state.closed) {
+            state.closedMessage?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
+            onBack()
+        }
     }
 
     Scaffold(
@@ -54,6 +61,17 @@ fun OrderScreen(
             OrderContent(state, viewModel, Modifier.padding(padding).fillMaxSize())
         }
     }
+
+    val order = state.order
+    if (state.showPayment && order != null) {
+        PaymentDialog(
+            order = order,
+            busy = state.busy,
+            error = state.error,
+            onPay = viewModel::pay,
+            onDismiss = viewModel::dismissPayment,
+        )
+    }
 }
 
 @Composable
@@ -63,8 +81,13 @@ private fun OrderContent(
     modifier: Modifier,
 ) {
     Column(modifier = modifier) {
-        state.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
+        if (!state.showPayment) {
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
+            }
+        }
+        state.notice?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp))
         }
 
         LazyRow(modifier = Modifier.padding(8.dp)) {
@@ -95,7 +118,7 @@ private fun OrderContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(product.name)
-                    Text("${"%.2f".format(product.price)} €")
+                    Text(euros(product.price))
                 }
                 HorizontalDivider()
             }
@@ -111,7 +134,7 @@ private fun OrderContent(
                 ) {
                     Text("${line.qty}× ${line.product.name}${line.note?.let { " ($it)" } ?: ""}")
                     Row {
-                        Text("${"%.2f".format(line.qty * line.unitPrice)} €")
+                        Text(euros(line.qty * line.unitPrice))
                         if (line.status == "PENDING") {
                             Text(
                                 "  Quitar",
@@ -124,31 +147,38 @@ private fun OrderContent(
             }
         }
 
-        Text(
-            "Total: ${"%.2f".format(state.order?.total ?: 0.0)} €",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(8.dp),
-        )
+        val order = state.order
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Total: ${euros(order?.total ?: 0.0)}", style = MaterialTheme.typography.titleMedium)
+            if (order != null && order.paid > 0) {
+                Text("Pendiente: ${euros(order.pending)}", style = MaterialTheme.typography.titleMedium)
+            }
+        }
 
-        val hasPending = state.order?.lines?.any { it.status == "PENDING" } == true
+        val hasPending = order?.lines?.any { it.status == "PENDING" } == true
+        val isEmpty = order != null && order.lines.isEmpty() && order.payments.isEmpty()
         Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
             Button(
                 onClick = viewModel::sendToKitchen,
                 enabled = hasPending && !state.busy,
-                modifier = Modifier.weight(1f),
-            ) { Text("Enviar") }
-        }
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Button(
-                onClick = { viewModel.closeOrder("CASH") },
-                enabled = !state.busy,
                 modifier = Modifier.weight(1f).padding(end = 4.dp),
-            ) { Text("Cobrar efectivo") }
-            Button(
-                onClick = { viewModel.closeOrder("CARD") },
-                enabled = !state.busy,
-                modifier = Modifier.weight(1f).padding(start = 4.dp),
-            ) { Text("Cobrar tarjeta") }
+            ) { Text("Enviar") }
+            if (isEmpty) {
+                OutlinedButton(
+                    onClick = viewModel::releaseTable,
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                ) { Text("Liberar mesa") }
+            } else {
+                Button(
+                    onClick = viewModel::openPayment,
+                    enabled = !state.busy && order != null && order.pending > 0,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                ) { Text("Cobrar") }
+            }
         }
     }
 }

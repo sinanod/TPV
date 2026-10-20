@@ -8,7 +8,20 @@ restaurantes:
   internet.
 - **Un portal en Azure** para todos: cada restaurante entra con el usuario y
   contraseña que le das de alta tú, ve su estado en vivo y sus ventas, y
-  gestiona carta, mesas y personal. No se puede usar como TPV.
+  gestiona carta, impresoras, mesas y personal. No se puede usar como TPV.
+
+Qué incluye:
+
+- **Comandas por familias**: cada familia de productos tiene su impresora
+  (barra, cocina…), de red o USB.
+- **Cobro por mesa**: entero o por partes (importe libre o a partes
+  iguales), efectivo con cambio o tarjeta, desde el TPV o desde Android; y
+  el cliente puede pagar desde su móvil con el QR de la mesa (pasarela de
+  demostración por ahora).
+- **Ticket por email** al cliente, con el QR tributario.
+- **VERI*FACTU** activable por cada restaurante en su portal: el TPV genera
+  los registros y el QR, la nube los remite a la AEAT con el certificado del
+  restaurante.
 
 Diseño completo en [`ARCHITECTURE.md`](./ARCHITECTURE.md). Despliegue en
 Azure y alta de restaurantes en [`cloud/README.md`](./cloud/README.md).
@@ -49,3 +62,7 @@ cd desktop && npm install && npm run dev
 
 La app Android (`android/`) se abre en Android Studio; en el login se pone la
 IP del PC del restaurante (la muestra la app de escritorio) y el PIN.
+
+Tests: `npm test` en `server/` y en `cloud/server/` (este necesita
+PostgreSQL). Prueba completa local + nube, con AEAT, SMTP e impresora
+simulados: `node scripts/e2e.mjs`.

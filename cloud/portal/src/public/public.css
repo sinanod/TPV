@@ -1,0 +1,379 @@
+:root {
+  color-scheme: light;
+  --c-bg: #f6f3ee;
+  --c-card: #ffffff;
+  --c-text: #1d1b18;
+  --c-muted: #6b665e;
+  --c-border: #e4ded4;
+  --c-accent: #1f6f4a;
+  --c-accent-soft: #e5f2ea;
+  --c-bad: #b3261e;
+  --c-bad-soft: #fbeae8;
+  --c-warn: #8a5a00;
+  --c-warn-soft: #fff3d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.c-page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.c-header {
+  text-align: center;
+  padding: 12px 0 4px;
+}
+.c-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.c-header p {
+  margin: 4px 0 0;
+  color: var(--c-muted);
+  font-weight: 600;
+}
+
+.c-card {
+  position: relative;
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.c-card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.c-card p {
+  margin: 0;
+}
+.c-center {
+  text-align: center;
+  align-items: center;
+}
+.c-muted {
+  color: var(--c-muted);
+}
+.small {
+  font-size: 0.85rem;
+}
+
+.c-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.c-lines li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.c-qty {
+  color: var(--c-muted);
+  min-width: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+.c-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.c-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.c-totals {
+  margin: 0;
+  border-top: 1px dashed var(--c-border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.c-totals div {
+  display: flex;
+  justify-content: space-between;
+}
+.c-totals dt {
+  color: var(--c-muted);
+}
+.c-totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.c-totals .c-pending dt,
+.c-totals .c-pending dd {
+  color: var(--c-text);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.c-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.c-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1.5px solid var(--c-border);
+  border-radius: 12px;
+  cursor: pointer;
+  min-height: 52px;
+}
+.c-option span {
+  flex: 1;
+}
+.c-option.active {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.c-option input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--c-accent);
+}
+.c-sub {
+  padding: 4px 4px 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.c-split {
+  align-items: center;
+  text-align: center;
+}
+.c-stepper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.c-stepper button {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1.5px solid var(--c-border);
+  background: var(--c-card);
+  font-size: 1.5rem;
+  color: var(--c-text);
+  cursor: pointer;
+}
+.c-stepper span {
+  font-size: 1.4rem;
+  font-weight: 700;
+  min-width: 6.5rem;
+  text-align: center;
+}
+.c-stepper small {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--c-muted);
+}
+
+.c-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--c-muted);
+}
+.c-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1.5px solid var(--c-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--c-text);
+  font-size: 1rem;
+}
+.c-field input:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.c-euro-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.c-euro-input input {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.c-euro-input span {
+  font-size: 1.3rem;
+  color: var(--c-text);
+}
+
+.c-btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--c-border);
+  background: var(--c-card);
+  color: var(--c-text);
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.c-btn.primary {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+.c-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.c-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.c-error {
+  color: var(--c-bad);
+  font-weight: 600;
+}
+.c-offline {
+  margin: 0;
+  text-align: center;
+  color: var(--c-warn);
+  background: var(--c-warn-soft);
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 0.9rem;
+}
+.c-demo-note {
+  background: var(--c-warn-soft);
+  color: var(--c-warn);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.c-status {
+  padding-right: 44px;
+}
+.c-status.ok {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.c-status.bad {
+  border-color: var(--c-bad);
+  background: var(--c-bad-soft);
+}
+.c-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  color: var(--c-muted);
+  cursor: pointer;
+}
+.c-wait::after {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: c-spin 0.8s linear infinite;
+  vertical-align: -0.1em;
+}
+@keyframes c-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.c-refund {
+  background: var(--c-warn-soft);
+  color: var(--c-warn);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.c-demo-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  background: #ffcc00;
+  color: #1d1b18;
+  border: 3px dashed #1d1b18;
+  border-radius: 14px;
+  padding: 14px;
+  font-size: 1.05rem;
+}
+.c-demo-banner strong {
+  font-size: 1.35rem;
+  letter-spacing: 0.04em;
+}
+.c-big {
+  font-size: 2.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.c-checkout {
+  padding: 24px 16px;
+}
+
+.c-foot {
+  margin: 0;
+  text-align: center;
+  color: var(--c-muted);
+  font-size: 0.8rem;
+}

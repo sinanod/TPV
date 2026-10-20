@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { Category, Product } from "../types";
 import { api } from "../lib/api";
-import { money, PRINTER_TAG } from "../lib/format";
+import { money } from "../lib/format";
 import { confirmAndRun, toast } from "../lib/notify";
 import { useResource } from "../lib/useResource";
 import { LoadState, PageHeader } from "../components/common";
-import { CategoryForm } from "./CategoryForm";
+import { FamilyForm } from "./FamilyForm";
 import { ProductForm } from "./ProductForm";
 
 type Editing =
@@ -15,13 +15,17 @@ type Editing =
 
 export function CatalogPage() {
   const catalog = useResource(api.catalog, ["config:updated"]);
+  const printers = useResource(api.printers, ["config:updated"]);
+  const printerList = printers.data?.printers ?? [];
+  const printerName = new Map(printerList.map((p) => [p.id, p.name]));
   const [editing, setEditing] = useState<Editing>(null);
   const categories = catalog.data;
 
   async function toggleAvailable(p: Product) {
     const available = !p.available;
-    catalog.setData((cats) =>
-      cats && cats.map((c) => ({ ...c, products: c.products.map((x) => (x.id === p.id ? { ...x, available } : x)) })),
+    catalog.setData(
+      (cats) =>
+        cats && cats.map((c) => ({ ...c, products: c.products.map((x) => (x.id === p.id ? { ...x, available } : x)) })),
     );
     try {
       await api.updateProduct(p.id, { available });
@@ -32,38 +36,59 @@ export function CatalogPage() {
   }
 
   async function removeCategory(c: Category) {
-    const ok = await confirmAndRun(`¿Borrar la categoría «${c.name}»?`, () => api.deleteCategory(c.id), "Categoría borrada");
+    const ok = await confirmAndRun(
+      `¿Borrar la familia «${c.name}»?`,
+      () => api.deleteCategory(c.id),
+      "Familia borrada",
+    );
     if (ok) catalog.reload();
   }
 
   async function removeProduct(p: Product) {
-    const ok = await confirmAndRun(`¿Borrar el producto «${p.name}»?`, () => api.deleteProduct(p.id), "Producto borrado");
+    const ok = await confirmAndRun(
+      `¿Borrar el producto «${p.name}»?`,
+      () => api.deleteProduct(p.id),
+      "Producto borrado",
+    );
     if (ok) catalog.reload();
   }
 
   return (
     <>
-      <PageHeader title="Carta">
+      <PageHeader title="Familias y productos">
         <button className="btn primary" onClick={() => setEditing({ kind: "category", category: null })}>
-          Nueva categoría
+          Nueva familia
         </button>
       </PageHeader>
-      <p className="muted small intro">Los cambios se envían automáticamente a los TPV del restaurante.</p>
+      <p className="muted small intro">
+        Cada familia agrupa productos y decide en qué impresora salen al enviar la comanda. Los cambios se envían
+        automáticamente a los TPV del restaurante.
+      </p>
 
       <LoadState error={catalog.error} loading={!categories} />
-      {categories?.length === 0 && <p className="muted panel">Aún no hay categorías. Crea la primera.</p>}
+      {categories?.length === 0 && (
+        <p className="muted panel">Aún no hay familias. Crea la primera (por ejemplo «Bebidas»).</p>
+      )}
 
       {categories?.map((c) => (
-        <section key={c.id} className="panel" data-testid={`category-${c.name}`}>
+        <section key={c.id} className="panel" data-testid={`family-${c.name}`}>
           <div className="panel-header">
             <div>
               <h2>{c.name}</h2>
               <span className="muted small">
-                Impresora: {PRINTER_TAG[c.printerTag]} · Orden {c.sortOrder}
+                {c.printerId ? (
+                  <>Impresora: {printerName.get(c.printerId) ?? "…"}</>
+                ) : (
+                  <span className="warn-text">Sin impresora — no se imprime</span>
+                )}{" "}
+                · Orden {c.sortOrder}
               </span>
             </div>
             <div className="row-actions">
-              <button className="btn small" onClick={() => setEditing({ kind: "product", product: null, categoryId: c.id })}>
+              <button
+                className="btn small"
+                onClick={() => setEditing({ kind: "product", product: null, categoryId: c.id })}
+              >
                 Añadir producto
               </button>
               <button className="btn small ghost" onClick={() => setEditing({ kind: "category", category: c })}>
@@ -83,14 +108,16 @@ export function CatalogPage() {
                 <colgroup>
                   <col />
                   <col className="col-num" />
+                  <col className="col-tax" />
                   <col className="col-num" />
-                  <col className="col-num" />
+                  <col className="col-tax" />
                   <col className="col-actions" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Producto</th>
                     <th className="num">Precio</th>
+                    <th className="num">IVA</th>
                     <th>Disponible</th>
                     <th className="num">Orden</th>
                     <th />
@@ -101,6 +128,7 @@ export function CatalogPage() {
                     <tr key={p.id} className={p.available ? undefined : "dimmed"}>
                       <td className="wrap">{p.name}</td>
                       <td className="num">{money(p.price)}</td>
+                      <td className="num">{p.taxRate} %</td>
                       <td>
                         <label className="switch">
                           <input
@@ -134,7 +162,12 @@ export function CatalogPage() {
       ))}
 
       {editing?.kind === "category" && (
-        <CategoryForm category={editing.category} onClose={() => setEditing(null)} onSaved={catalog.reload} />
+        <FamilyForm
+          family={editing.category}
+          printers={printerList}
+          onClose={() => setEditing(null)}
+          onSaved={catalog.reload}
+        />
       )}
       {editing?.kind === "product" && categories && (
         <ProductForm

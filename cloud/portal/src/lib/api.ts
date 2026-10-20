@@ -1,4 +1,24 @@
-import type { Category, FloorZone, Order, Overview, Product, Sales, Staff, Tenant } from "../types";
+import type {
+  AeatStatus,
+  Business,
+  Category,
+  CertificateKind,
+  AeatEnvironment,
+  FloorZone,
+  Invoice,
+  OnlinePayment,
+  Order,
+  Overview,
+  Printer,
+  PrintersResponse,
+  Product,
+  Sales,
+  Settings,
+  Staff,
+  Submission,
+  TableQr,
+  Tenant,
+} from "../types";
 
 const TOKEN_KEY = "tpv_portal_token";
 const TENANT_KEY = "tpv_portal_tenant";
@@ -41,7 +61,20 @@ const FIELD_NAMES: Record<string, string> = {
   number: "Número",
   capacity: "Comensales",
   sortOrder: "Orden",
-  printerTag: "Impresora",
+  printerId: "Impresora",
+  taxRate: "IVA",
+  type: "Tipo",
+  address: "Dirección",
+  port: "Puerto",
+  width: "Ancho de papel",
+  tradeName: "Nombre comercial",
+  legalName: "Razón social",
+  nif: "NIF",
+  ticketFooter: "Pie del ticket",
+  receiptPrinterId: "Impresora de tickets",
+  pfxBase64: "Certificado",
+  password: "Contraseña",
+  email: "Email",
 };
 
 type ErrorBody = { error?: string; details?: Record<string, string[] | undefined> };
@@ -88,11 +121,15 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
   return data as T;
 }
 
-type CategoryInput = Pick<Category, "name" | "printerTag" | "sortOrder">;
+type CategoryInput = Pick<Category, "name" | "printerId" | "sortOrder">;
+type PrinterInput = Omit<Printer, "id">;
 type ProductInput = Omit<Product, "id">;
 type ZoneInput = { name: string; sortOrder: number };
 type TableInput = { zoneId: string; number: number; capacity: number };
 type StaffInput = Omit<Staff, "id">;
+
+const rangeQuery = (from: Date, to: Date) =>
+  `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
 
 export const api = {
   login: (username: string, password: string) =>
@@ -102,15 +139,23 @@ export const api = {
   overview: (since: Date) => request<Overview>(`/portal/overview?since=${encodeURIComponent(since.toISOString())}`),
   floor: () => request<FloorZone[]>("/portal/floor"),
   openOrders: () => request<Order[]>("/portal/orders/open"),
-  sales: (from: Date, to: Date) =>
-    request<Sales>(
-      `/portal/sales?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-    ),
+  sales: (from: Date, to: Date) => request<Sales>(`/portal/sales?${rangeQuery(from, to)}`),
+  invoices: (from: Date, to: Date, aeatStatus: AeatStatus | "") =>
+    request<Invoice[]>(`/portal/invoices?${rangeQuery(from, to)}${aeatStatus ? `&aeatStatus=${aeatStatus}` : ""}`),
+  emailInvoice: (id: string, email: string) => request(`/portal/invoices/${id}/email`, "POST", { email }),
+  submissions: () => request<Submission[]>("/portal/verifactu/submissions"),
+  onlinePayments: () => request<OnlinePayment[]>("/portal/online-payments"),
   revokeDevice: (id: string) => request<void>(`/portal/devices/${id}`, "DELETE"),
+
+  printers: () => request<PrintersResponse>("/portal/printers"),
+  createPrinter: (data: PrinterInput) => request<Printer>("/portal/printers", "POST", data),
+  updatePrinter: (id: string, data: Partial<PrinterInput>) => request<Printer>(`/portal/printers/${id}`, "PATCH", data),
+  deletePrinter: (id: string) => request<void>(`/portal/printers/${id}`, "DELETE"),
 
   catalog: () => request<Category[]>("/portal/catalog"),
   createCategory: (data: CategoryInput) => request<Category>("/portal/categories", "POST", data),
-  updateCategory: (id: string, data: Partial<CategoryInput>) => request<Category>(`/portal/categories/${id}`, "PATCH", data),
+  updateCategory: (id: string, data: Partial<CategoryInput>) =>
+    request<Category>(`/portal/categories/${id}`, "PATCH", data),
   deleteCategory: (id: string) => request<void>(`/portal/categories/${id}`, "DELETE"),
   createProduct: (data: ProductInput) => request<Product>("/portal/products", "POST", data),
   updateProduct: (id: string, data: Partial<ProductInput>) => request<Product>(`/portal/products/${id}`, "PATCH", data),
@@ -122,6 +167,17 @@ export const api = {
   createTable: (data: TableInput) => request("/portal/tables", "POST", data),
   updateTable: (id: string, data: Partial<TableInput>) => request(`/portal/tables/${id}`, "PATCH", data),
   deleteTable: (id: string) => request<void>(`/portal/tables/${id}`, "DELETE"),
+  tableQrs: () => request<TableQr[]>("/portal/tables/qr"),
+  rotateTableQr: (id: string) => request<void>(`/portal/tables/${id}/qr/rotate`, "POST"),
+
+  settings: () => request<Settings>("/portal/settings"),
+  saveBusiness: (data: Business) => request<Settings>("/portal/settings/business", "PUT", data),
+  saveVerifactu: (data: { enabled: boolean; environment: AeatEnvironment; certificateKind: CertificateKind }) =>
+    request<Settings>("/portal/settings/verifactu", "PUT", data),
+  uploadCertificate: (pfxBase64: string, password: string) =>
+    request<Settings>("/portal/settings/certificate", "PUT", { pfxBase64, password }),
+  deleteCertificate: () => request<Settings>("/portal/settings/certificate", "DELETE"),
+  saveOnlinePayments: (enabled: boolean) => request<Settings>("/portal/settings/online-payments", "PUT", { enabled }),
 
   staff: () => request<Staff[]>("/portal/staff"),
   createStaff: (data: StaffInput) => request<Staff>("/portal/staff", "POST", data),

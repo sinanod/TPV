@@ -1,5 +1,17 @@
 import { getServerUrl } from "./config";
-import type { Category, CloudStatus, DashboardSummary, Order, User, Zone } from "../types";
+import type {
+  Category,
+  CloudStatus,
+  DashboardSummary,
+  FailedPrintJob,
+  InvoiceListItem,
+  InvoiceRef,
+  Order,
+  PaymentResponse,
+  PrintResult,
+  User,
+  Zone,
+} from "../types";
 
 const TOKEN_KEY = "tpv_token";
 const USER_KEY = "tpv_user";
@@ -64,9 +76,22 @@ export const api = {
     }),
   deleteLine: (orderId: number, lineId: number) =>
     request<Order>(`/orders/${orderId}/lines/${lineId}`, { method: "DELETE" }),
-  sendOrder: (orderId: number) => request<Order>(`/orders/${orderId}/send`, { method: "POST" }),
+  sendOrder: (orderId: number) =>
+    request<Order & { prints: PrintResult[] }>(`/orders/${orderId}/send`, { method: "POST" }),
+  addPayment: (
+    orderId: number,
+    data: { method: "CASH" | "CARD"; amount: number; tendered?: number; email?: string },
+  ) => request<PaymentResponse>(`/orders/${orderId}/payments`, { method: "POST", body: JSON.stringify(data) }),
+  printBill: (orderId: number) => request<PrintResult>(`/orders/${orderId}/print-bill`, { method: "POST" }),
+  invoices: () => request<InvoiceListItem[]>("/invoices"),
+  printInvoice: (invoiceId: number) => request<PrintResult>(`/invoices/${invoiceId}/print`, { method: "POST" }),
+  emailInvoice: (invoiceId: number, email: string) =>
+    request(`/invoices/${invoiceId}/email`, { method: "POST", body: JSON.stringify({ email }) }),
+  failedPrintJobs: () => request<FailedPrintJob[]>("/print-jobs/failed"),
+  retryPrintJob: (jobId: number) => request<PrintResult>(`/print-jobs/${jobId}/retry`, { method: "POST" }),
+  dismissPrintJob: (jobId: number) => request(`/print-jobs/${jobId}/dismiss`, { method: "POST" }),
   closeOrder: (orderId: number, paymentMethod: "CASH" | "CARD") =>
-    request(`/orders/${orderId}/close`, {
+    request<{ invoice: InvoiceRef | null; receiptPrint: PrintResult | null }>(`/orders/${orderId}/close`, {
       method: "POST",
       body: JSON.stringify({ paymentMethod }),
     }),

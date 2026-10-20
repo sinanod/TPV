@@ -2,7 +2,9 @@
 // Container Registry + App Service (Linux, contenedor) + PostgreSQL Flexible Server.
 //
 // az deployment group create -g <grupo> -f cloud/infra/main.bicep \
-//   -p namePrefix=tpv postgresAdminPassword=<...> jwtSecret=<...>
+//   -p namePrefix=tpv postgresAdminPassword=<...> jwtSecret=<...> certEncryptionKey=<...> \
+//      sifProducerName='Mi Empresa SL' sifProducerNif=B12345674 \
+//      smtpHost=smtp.azurecomm.net smtpUser=<...> smtpPass=<...> mailFrom=tickets@<dominio>
 
 @description('Prefijo para los nombres de los recursos (minúsculas y números, 3-12 caracteres).')
 @minLength(3)
@@ -24,6 +26,55 @@ param postgresAdminPassword string
 @description('Secreto para firmar las sesiones del portal (p. ej. openssl rand -hex 32).')
 param jwtSecret string
 
+@secure()
+@minLength(64)
+@maxLength(64)
+@description('Clave AES-256 en hexadecimal (openssl rand -hex 32) con la que se cifran los certificados de la AEAT de los restaurantes. Si se pierde, hay que volver a subir los certificados.')
+param certEncryptionKey string
+
+@description('Razón social de quien produce el sistema de facturación (tú). Va en cada registro VERI*FACTU. Vacío = VERI*FACTU no se podrá activar.')
+param sifProducerName string = ''
+
+@description('NIF del productor del sistema de facturación.')
+param sifProducerNif string = ''
+
+@description('Nombre del sistema de facturación tal y como figura en la declaración responsable (máx. 30 caracteres).')
+@maxLength(30)
+param sifSystemName string = 'TPV Restaurantes'
+
+@description('Código de 2 caracteres del sistema de facturación.')
+@maxLength(2)
+param sifSystemId string = 'TR'
+
+@description('Versión del sistema de facturación declarada.')
+param sifVersion string = '1.0.0'
+
+@description('Servidor SMTP para enviar los tickets por correo (p. ej. smtp.azurecomm.net con Azure Communication Services). Vacío = no se envían correos.')
+param smtpHost string = ''
+
+param smtpPort int = 587
+
+@description('true solo para SMTPS en el puerto 465; con 587 se usa STARTTLS.')
+param smtpSecure bool = false
+
+param smtpUser string = ''
+
+@secure()
+param smtpPass string = ''
+
+@description('Remitente de los correos, p. ej. "Tickets <tickets@tudominio.es>" (debe estar verificado en el proveedor SMTP).')
+param mailFrom string = ''
+
+@description('URL pública del portal (QR de las mesas y enlaces de los correos). Vacío = la URL de azurewebsites.net. Ponla si usas un dominio propio: cambiarla después invalida los QR impresos.')
+param publicBaseUrl string = ''
+
+@description('Pasarela para el pago desde el móvil del cliente: vacío = desactivado; "demo" = solo pruebas, NO cobra.')
+@allowed([
+  ''
+  'demo'
+])
+param paymentProvider string = ''
+
 @description('Etiqueta de la imagen tpv-cloud en el registro.')
 param imageTag string = 'latest'
 
@@ -40,6 +91,7 @@ var webAppName = take('${namePrefix}-portal-${suffix}', 60)
 var postgresName = take('${namePrefix}-pg-${suffix}', 63)
 var databaseName = 'tpv'
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var portalBaseUrl = empty(publicBaseUrl) ? 'https://${webAppName}.azurewebsites.net' : publicBaseUrl
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: acrName
@@ -136,6 +188,20 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'NODE_ENV', value: 'production' }
         { name: 'DATABASE_URL', value: databaseUrl }
         { name: 'JWT_SECRET', value: jwtSecret }
+        { name: 'CERT_ENCRYPTION_KEY', value: certEncryptionKey }
+        { name: 'PUBLIC_BASE_URL', value: portalBaseUrl }
+        { name: 'SIF_PRODUCER_NAME', value: sifProducerName }
+        { name: 'SIF_PRODUCER_NIF', value: sifProducerNif }
+        { name: 'SIF_SYSTEM_NAME', value: sifSystemName }
+        { name: 'SIF_SYSTEM_ID', value: sifSystemId }
+        { name: 'SIF_VERSION', value: sifVersion }
+        { name: 'SMTP_HOST', value: smtpHost }
+        { name: 'SMTP_PORT', value: string(smtpPort) }
+        { name: 'SMTP_SECURE', value: string(smtpSecure) }
+        { name: 'SMTP_USER', value: smtpUser }
+        { name: 'SMTP_PASS', value: smtpPass }
+        { name: 'MAIL_FROM', value: mailFrom }
+        { name: 'PAYMENT_PROVIDER', value: paymentProvider }
       ]
     }
   }

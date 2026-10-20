@@ -1,14 +1,16 @@
 import { useState } from "react";
 import type { Tenant } from "../types";
 
-export type Section = "live" | "sales" | "catalog" | "floor" | "staff";
+export type Section = "live" | "sales" | "catalog" | "printers" | "floor" | "staff" | "settings";
 
 export const SECTIONS: { id: Section; label: string }[] = [
   { id: "live", label: "En directo" },
   { id: "sales", label: "Ventas" },
   { id: "catalog", label: "Carta" },
+  { id: "printers", label: "Impresoras" },
   { id: "floor", label: "Salón" },
   { id: "staff", label: "Personal" },
+  { id: "settings", label: "Ajustes" },
 ];
 
 type Props = { tenant: Tenant; section: Section; onNavigate: (s: Section) => void; onLogout: () => void };

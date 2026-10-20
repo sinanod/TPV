@@ -38,7 +38,14 @@ function post(url: string, body: string, pfx: Buffer, passphrase: string): Promi
           const text = Buffer.concat(chunks).toString("utf8");
           // Los SOAP Fault llegan con HTTP 500 y cuerpo XML: los interpreta parseResponse
           if (res.statusCode === 200 || text.includes("Fault")) resolve(text);
-          else reject(new Error(`La AEAT respondió HTTP ${res.statusCode}`));
+          // Sin un certificado que reconozca, la AEAT suele redirigir a su página de error en vez de responder
+          else if ([301, 302, 401, 403].includes(res.statusCode ?? 0)) {
+            reject(
+              new Error(
+                `La AEAT no aceptó la conexión (HTTP ${res.statusCode}), normalmente porque no reconoce el certificado: comprueba que es un certificado válido emitido por una autoridad reconocida (FNMT, Camerfirma…), que no ha caducado y que coincide con el tipo elegido (personal o de sello)`,
+              ),
+            );
+          } else reject(new Error(`La AEAT respondió HTTP ${res.statusCode}`));
         });
       },
     );

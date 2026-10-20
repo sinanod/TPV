@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { Category, Product } from "../types";
+import type { Category, Product, TaxRate } from "../types";
 import { api } from "../lib/api";
-import { parseDecimal } from "../lib/format";
+import { parseDecimal, TAX_RATES } from "../lib/format";
 import { toast } from "../lib/notify";
 import { FormModal } from "../components/FormModal";
 
@@ -17,13 +17,21 @@ export function ProductForm({ product, categoryId, categories, onClose, onSaved 
   const [name, setName] = useState(product?.name ?? "");
   const [price, setPrice] = useState(product ? String(product.price).replace(".", ",") : "");
   const [category, setCategory] = useState(product?.categoryId ?? categoryId);
+  const [taxRate, setTaxRate] = useState<TaxRate>(product?.taxRate ?? 10);
   const [available, setAvailable] = useState(product?.available ?? true);
   const [sortOrder, setSortOrder] = useState(String(product?.sortOrder ?? 0));
 
   async function save() {
     const value = parseDecimal(price);
     if (!Number.isFinite(value) || value < 0) throw new Error("El precio no es válido");
-    const data = { name, price: Math.round(value * 100) / 100, categoryId: category, available, sortOrder: Number(sortOrder) };
+    const data = {
+      name,
+      price: Math.round(value * 100) / 100,
+      categoryId: category,
+      taxRate,
+      available,
+      sortOrder: Number(sortOrder),
+    };
     if (product) await api.updateProduct(product.id, data);
     else await api.createProduct(data);
     toast(product ? "Producto guardado" : "Producto creado");
@@ -49,7 +57,18 @@ export function ProductForm({ product, categoryId, categories, onClose, onSaved 
         />
       </label>
       <label>
-        Categoría
+        IVA (incluido en el precio)
+        <select value={taxRate} onChange={(e) => setTaxRate(Number(e.target.value) as TaxRate)}>
+          {TAX_RATES.map((r) => (
+            <option key={r} value={r}>
+              {r} %{r === 10 ? " — hostelería" : ""}
+              {r === 21 ? " — general" : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Familia
         <select value={category} onChange={(e) => setCategory(e.target.value)}>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>

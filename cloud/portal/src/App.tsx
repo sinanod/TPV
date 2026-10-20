@@ -10,6 +10,9 @@ import { SalesPage } from "./sales/SalesPage";
 import { CatalogPage } from "./catalog/CatalogPage";
 import { FloorPage } from "./floor/FloorPage";
 import { StaffPage } from "./staff/StaffPage";
+import { PrintersPage } from "./printers/PrintersPage";
+import { SettingsPage } from "./settings/SettingsPage";
+import "./styles.css";
 
 function sectionFromHash(): Section {
   const id = window.location.hash.slice(1);
@@ -20,8 +23,10 @@ const PAGES: Record<Section, () => JSX.Element> = {
   live: LivePage,
   sales: SalesPage,
   catalog: CatalogPage,
+  printers: PrintersPage,
   floor: FloorPage,
   staff: StaffPage,
+  settings: SettingsPage,
 };
 
 export default function App() {

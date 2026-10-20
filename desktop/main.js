@@ -1,13 +1,19 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { startPrintAgent } = require("./printAgent");
 
 const SERVER_PORT = process.env.TPV_SERVER_PORT || "4000";
 const SERVER_URL = `http://localhost:${SERVER_PORT}`;
 
+// Solo esta app puede conectarse como agente de impresión del servidor
+const PRINT_AGENT_TOKEN = crypto.randomBytes(32).toString("hex");
+
 let serverProcess = null;
 let mainWindow = null;
+let stopPrintAgent = null;
 
 function resolveServerDir() {
   return app.isPackaged
@@ -27,6 +33,7 @@ function startServer() {
     env: {
       ...process.env,
       PORT: SERVER_PORT,
+      PRINT_AGENT_TOKEN,
       ...(app.isPackaged ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
     },
     stdio: "inherit",
@@ -103,6 +110,8 @@ async function createWindow() {
 
   await mainWindow.loadURL(SERVER_URL);
   injectLanBadge();
+  stopPrintAgent?.();
+  stopPrintAgent = startPrintAgent({ serverUrl: SERVER_URL, token: PRINT_AGENT_TOKEN, window: mainWindow });
 }
 
 app.whenReady().then(() => {
@@ -119,5 +128,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  stopPrintAgent?.();
   if (serverProcess) serverProcess.kill();
 });

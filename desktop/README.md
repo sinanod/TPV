@@ -5,6 +5,17 @@ aplicación de escritorio. El mismo proceso queda escuchando en la red local,
 así que la app Android y cualquier navegador de la misma WiFi pueden
 conectarse a la IP que se muestra en la franja inferior de la ventana.
 
+## Impresoras USB
+
+Las impresoras de tickets de red las usa directamente el servidor. Para las
+que están instaladas en este PC (USB o compartidas, con su driver), la app
+hace de agente de impresión (`printAgent.js`): se conecta al servidor local
+con un token que genera al arrancar, le informa de las impresoras que tiene
+el sistema (llegan al portal para elegirlas al crear la impresora «instalada
+en el PC») e imprime en silencio los tickets que le manda el servidor. Si la
+app está cerrada o la impresora no existe, el TPV lo avisa como un fallo de
+impresión que se puede reintentar.
+
 ## Desarrollo
 
 ```bash

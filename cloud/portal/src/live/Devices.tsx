@@ -11,8 +11,8 @@ export function Devices({ devices, onChange }: { devices: Device[]; onChange: ()
         <p className="muted small">
           Para vincularlo, abre la aplicación de escritorio del TPV en el restaurante y, en la pantalla de acceso, pulsa
           «Portal: sin vincular · Configurar». Introduce la dirección de este portal (
-          <code>{window.location.origin}</code>) con este mismo usuario y contraseña. A partir de ese momento verás aquí las mesas y ventas en directo, y los cambios de carta, salón y
-          personal se enviarán al restaurante.
+          <code>{window.location.origin}</code>) con este mismo usuario y contraseña. A partir de ese momento verás aquí
+          las mesas y ventas en directo, y los cambios de carta, salón y personal se enviarán al restaurante.
         </p>
       </div>
     );
@@ -35,7 +35,7 @@ export function Devices({ devices, onChange }: { devices: Device[]; onChange: ()
           <div className="device-info">
             <strong>{d.name}</strong>
             <span className="muted small">
-              {d.online ? "En línea" : "Desconectado"}
+              Serie de tickets <code>{d.invoiceSeries}</code> · {d.online ? "En línea" : "Desconectado"}
               {!d.online && d.lastSeenAt && ` · última conexión ${formatDateTime(d.lastSeenAt)}`}
             </span>
           </div>

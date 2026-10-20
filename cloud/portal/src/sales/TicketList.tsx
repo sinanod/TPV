@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
-import type { Order } from "../types";
-import { formatDateTime, formatTime, money, paymentLabel } from "../lib/format";
+import type { Order, Payment } from "../types";
+import { formatDateTime, formatTime, money, moneyCents, paymentLabel, paymentsSummary } from "../lib/format";
 import { OrderLines } from "../components/common";
 
 export function TicketList({ tickets, showDate }: { tickets: Order[]; showDate: boolean }) {
@@ -13,6 +13,7 @@ export function TicketList({ tickets, showDate }: { tickets: Order[]; showDate: 
         <thead>
           <tr>
             <th>{showDate ? "Fecha" : "Hora"}</th>
+            <th>Factura</th>
             <th>Mesa</th>
             <th>Camarero</th>
             <th>Pago</th>
@@ -38,15 +39,17 @@ export function TicketList({ tickets, showDate }: { tickets: Order[]; showDate: 
                     </span>
                     {showDate ? formatDateTime(closed) : formatTime(closed)}
                   </td>
+                  <td>{t.invoiceNumber ? <code>{t.invoiceNumber}</code> : <span className="muted">—</span>}</td>
                   <td>{t.tableLabel}</td>
                   <td>{t.waiterName ?? "—"}</td>
-                  <td>{paymentLabel(t.paymentMethod)}</td>
+                  <td>{paymentsSummary(t.payments, t.paymentMethod)}</td>
                   <td className="num">{money(t.total)}</td>
                 </tr>
                 {open && (
                   <tr className="ticket-detail">
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <OrderLines lines={t.lines} />
+                      <PaymentList payments={t.payments ?? []} />
                     </td>
                   </tr>
                 )}
@@ -56,5 +59,26 @@ export function TicketList({ tickets, showDate }: { tickets: Order[]; showDate: 
         </tbody>
       </table>
     </div>
+  );
+}
+
+export function PaymentList({ payments }: { payments: Payment[] }) {
+  const paid = payments.filter((p) => p.amountCents > 0 || p.refundCents > 0);
+  if (!paid.length) return null;
+  return (
+    <ul className="payment-list small">
+      {paid.map((p, i) => (
+        <li key={i}>
+          <span>{paymentLabel(p.method)}</span>
+          <span className="muted">
+            {p.tenderedCents !== null &&
+              p.tenderedCents > p.amountCents &&
+              `entregado ${moneyCents(p.tenderedCents)} · cambio ${moneyCents(p.tenderedCents - p.amountCents)}`}
+            {p.refundCents > 0 && <span className="warn-text"> devuelto {moneyCents(p.refundCents)}</span>}
+          </span>
+          <strong>{moneyCents(p.amountCents)}</strong>
+        </li>
+      ))}
+    </ul>
   );
 }

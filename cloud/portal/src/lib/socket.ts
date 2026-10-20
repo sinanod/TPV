@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { getToken, notifyUnauthorized } from "./api";
 
-export type RealtimeEvent = "live:updated" | "config:updated" | "devices:updated";
+export type RealtimeEvent = "live:updated" | "config:updated" | "devices:updated" | "verifactu:updated";
 
 let socket: Socket | null = null;
 

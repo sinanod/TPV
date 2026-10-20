@@ -6,6 +6,7 @@ import { useResource } from "../lib/useResource";
 import { LoadState, PageHeader } from "../components/common";
 import { ZoneForm } from "./ZoneForm";
 import { TableForm } from "./TableForm";
+import { QrSheet } from "./QrSheet";
 
 type Editing =
   | { kind: "zone"; zone: FloorZone | null }
@@ -15,6 +16,7 @@ type Editing =
 export function FloorPage() {
   const floor = useResource(api.floor, ["config:updated"]);
   const [editing, setEditing] = useState<Editing>(null);
+  const [showQr, setShowQr] = useState(false);
   const zones = floor.data;
 
   async function removeZone(z: FloorZone) {
@@ -31,17 +33,26 @@ export function FloorPage() {
     if (ok) floor.reload();
   }
 
+  if (showQr) return <QrSheet onBack={() => setShowQr(false)} />;
+
   return (
     <>
       <PageHeader title="Salón">
+        <button className="btn" onClick={() => setShowQr(true)}>
+          Códigos QR de las mesas
+        </button>
         <button className="btn primary" onClick={() => setEditing({ kind: "zone", zone: null })}>
           Nueva zona
         </button>
       </PageHeader>
-      <p className="muted small intro">Zonas y mesas del restaurante. El estado en vivo de las mesas está en «En directo».</p>
+      <p className="muted small intro">
+        Zonas y mesas del restaurante. El estado en vivo de las mesas está en «En directo».
+      </p>
 
       <LoadState error={floor.error} loading={!zones} />
-      {zones?.length === 0 && <p className="muted panel">Aún no hay zonas. Crea la primera (por ejemplo «Interior»).</p>}
+      {zones?.length === 0 && (
+        <p className="muted panel">Aún no hay zonas. Crea la primera (por ejemplo «Interior»).</p>
+      )}
 
       {zones?.map((z) => (
         <section key={z.id} className="panel" data-testid={`zone-${z.name}`}>
@@ -107,7 +118,9 @@ export function FloorPage() {
         </section>
       ))}
 
-      {editing?.kind === "zone" && <ZoneForm zone={editing.zone} onClose={() => setEditing(null)} onSaved={floor.reload} />}
+      {editing?.kind === "zone" && (
+        <ZoneForm zone={editing.zone} onClose={() => setEditing(null)} onSaved={floor.reload} />
+      )}
       {editing?.kind === "table" && zones && (
         <TableForm
           table={editing.table}

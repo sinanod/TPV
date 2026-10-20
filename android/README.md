@@ -1,7 +1,8 @@
 # TPV Comandas (Android)
 
-App nativa para camareros: login por PIN, mapa de mesas en tiempo real y envío
-de comandas a cocina/barra. Kotlin + Jetpack Compose + Retrofit + Socket.IO.
+App nativa para camareros: login por PIN, mapa de mesas en tiempo real, envío
+de comandas (cada familia sale por su impresora) y cobro de la mesa, entero o
+por partes, en efectivo o con tarjeta, con email del cliente para el ticket. Kotlin + Jetpack Compose + Retrofit + Socket.IO.
 Contrato de API/eventos: ver `../ARCHITECTURE.md`.
 
 ## Estructura
@@ -20,7 +21,7 @@ app/src/main/java/com/tpv/comandas/
   ui/
     login/    LoginScreen + LoginViewModel
     tables/   TablesScreen (mapa de mesas) + TablesViewModel
-    order/    OrderScreen (comanda) + OrderViewModel
+    order/    OrderScreen (comanda) + OrderViewModel + PaymentDialog (cobro)
     theme/    colores y tema oscuro (a juego con el panel web)
 ```
 
@@ -32,20 +33,22 @@ el PIN del camarero. A partir de ahí:
 
 - REST vía Retrofit con un interceptor que añade `Authorization: Bearer <token>`.
 - Tiempo real vía Socket.IO (`/realtime`): cualquier evento (`table:updated`,
-  `order:updated`, `order:sent`, `order:closed`) dispara una recarga del
-  estado desde REST — igual que hace el panel web.
+  `order:updated`, `order:sent`, `order:closed`, `payment:online`) dispara
+  una recarga del estado desde REST — igual que hace el panel web. Si la
+  cuenta se cierra en otro sitio (el TPV o el cliente pagando con el QR), la
+  pantalla de la mesa vuelve al mapa.
+- Si una impresora falla al enviar, la app lo avisa; el reintento se hace
+  desde el TPV.
 
 ## Build
 
-Este proyecto se ha escrito y revisado a mano en un entorno sin SDK de
-Android (el proxy de red del contenedor bloquea `dl.google.com` /
-`maven.google.com`, así que no se pudo ejecutar `gradle assembleDebug` aquí).
-Para compilarlo:
+Con Android Studio (Ladybug o posterior): abrir la carpeta `android/`,
+sincronizar Gradle y ejecutar en un emulador o móvil en la misma WiFi que el
+servidor. Desde terminal, con el SDK de Android (plataforma 34) y Gradle 8.7+:
 
-1. Abrir la carpeta `android/` en Android Studio (Ladybug o posterior) — se
-   encargará de generar el wrapper de Gradle y descargar el SDK/AGP.
-2. Sincronizar Gradle.
-3. Ejecutar en un emulador o dispositivo físico en la misma red WiFi que el
-   servidor.
+```bash
+ANDROID_HOME=~/Android/Sdk gradle :app:assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+```
 
 Usuarios de demo (mismos que en el servidor): PIN `1111`/`2222` (camareros).

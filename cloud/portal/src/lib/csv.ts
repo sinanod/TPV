@@ -1,5 +1,5 @@
 import type { Order } from "../types";
-import { paymentLabel } from "./format";
+import { paymentsSummary } from "./format";
 
 function cell(value: string): string {
   // Excel ejecuta como fórmula lo que empieza por = + - @ (inyección CSV).
@@ -11,16 +11,17 @@ const decimal = (n: number) => n.toFixed(2).replace(".", ",");
 
 export function ticketsToCsv(tickets: Order[]): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  const header = ["Fecha", "Hora", "Mesa", "Camarero", "Forma de pago", "Total", "Productos"];
+  const header = ["Fecha", "Hora", "Factura", "Mesa", "Camarero", "Forma de pago", "Total", "Productos"];
   const rows = tickets.map((t) => {
     const d = new Date(t.closedAt ?? t.openedAt);
     const lines = t.lines.map((l) => `${l.qty}x ${l.productName}`).join(", ");
     return [
       cell(`${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`),
       cell(`${pad(d.getHours())}:${pad(d.getMinutes())}`),
+      cell(t.invoiceNumber ?? ""),
       cell(t.tableLabel),
       cell(t.waiterName ?? ""),
-      cell(paymentLabel(t.paymentMethod)),
+      cell(paymentsSummary(t.payments, t.paymentMethod)),
       decimal(t.total),
       cell(lines),
     ].join(";");

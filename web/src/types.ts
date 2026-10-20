@@ -49,15 +49,72 @@ export interface OrderLine {
   product: Product;
 }
 
+export type PaymentMethod = "CASH" | "CARD" | "ONLINE";
+
+export interface Payment {
+  id: number;
+  method: PaymentMethod;
+  amount: number;
+  tendered: number | null;
+  email: string | null;
+  refundAmount: number;
+  createdAt: string;
+}
+
+export interface InvoiceRef {
+  id: number;
+  uuid: string;
+  numSerie: string;
+}
+
 export interface Order {
   id: number;
   status: OrderStatus;
   tableId: number;
   waiterId: number;
   lines: OrderLine[];
+  payments: Payment[];
   total: number;
+  paid: number;
+  pending: number;
+  invoice: (InvoiceRef & { qrUrl: string | null }) | null;
   table?: Table;
   waiter?: User;
+}
+
+export interface PrintResult {
+  jobId: number;
+  printerName: string;
+  ok: boolean;
+  error: string | null;
+}
+
+export interface PaymentResponse {
+  order: Order;
+  change: number;
+  invoice: InvoiceRef | null;
+  receiptPrint: PrintResult | null;
+}
+
+export interface FailedPrintJob {
+  id: number;
+  kind: string;
+  title: string;
+  printerName: string | null;
+  error: string | null;
+  attempts: number;
+  updatedAt: string;
+}
+
+export interface InvoiceListItem {
+  id: number;
+  uuid: string;
+  numSerie: string;
+  issuedAt: string;
+  total: number;
+  tableLabel: string;
+  verifactu: boolean;
+  payments: { method: PaymentMethod; amount: number; email: string | null }[];
 }
 
 export type CloudStatus =

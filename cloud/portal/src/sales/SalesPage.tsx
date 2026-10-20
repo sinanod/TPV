@@ -8,10 +8,17 @@ import { Kpi, LoadState, PageHeader } from "../components/common";
 import { RangePicker } from "./RangePicker";
 import { DailyBreakdown } from "./DailyBreakdown";
 import { TicketList } from "./TicketList";
+import { InvoiceList } from "./InvoiceList";
+import { needsRefund, OnlinePayments } from "./OnlinePayments";
+
+type Tab = "tickets" | "invoices" | "payments";
 
 export function SalesPage() {
   const [range, setRange] = useState(() => presetRange("today"));
   const [preset, setPreset] = useState<Preset | null>("today");
+  const [tab, setTab] = useState<Tab>("tickets");
+  const payments = useResource(api.onlinePayments, ["live:updated"]);
+  const refunds = payments.data?.filter(needsRefund).length ?? 0;
 
   const sales = useResource(
     () => {
@@ -29,7 +36,7 @@ export function SalesPage() {
     <>
       <PageHeader title="Ventas">
         <button
-          className="btn"
+          className={`btn${tab === "tickets" ? "" : " hidden"}`}
           disabled={!data?.tickets.length}
           onClick={() => data && downloadCsv(`ventas_${range.from}_${range.to}.csv`, ticketsToCsv(data.tickets))}
         >
@@ -37,21 +44,52 @@ export function SalesPage() {
         </button>
       </PageHeader>
 
-      <RangePicker
-        range={range}
-        preset={preset}
-        onPreset={(p) => {
-          setPreset(p);
-          setRange(presetRange(p));
-        }}
-        onCustom={(r) => {
-          setPreset(null);
-          setRange(r);
-        }}
-      />
+      <div className="tabs" role="tablist" aria-label="Vista">
+        {(
+          [
+            ["tickets", "Tickets"],
+            ["invoices", "Facturas"],
+            ["payments", "Pagos móvil"],
+          ] as [Tab, string][]
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "active" : undefined}
+            onClick={() => setTab(id)}
+          >
+            {label}
+            {id === "payments" && refunds > 0 && <span className="tab-alert">{refunds} a devolver</span>}
+          </button>
+        ))}
+      </div>
 
-      <LoadState error={sales.error} loading={!data} />
-      {data && !sales.error && (
+      {tab !== "payments" && (
+        <RangePicker
+          range={range}
+          preset={preset}
+          onPreset={(p) => {
+            setPreset(p);
+            setRange(presetRange(p));
+          }}
+          onCustom={(r) => {
+            setPreset(null);
+            setRange(r);
+          }}
+        />
+      )}
+
+      {tab === "invoices" && <InvoiceList range={range} />}
+      {tab === "payments" && (
+        <>
+          <LoadState error={payments.error} loading={!payments.data} />
+          {payments.data && <OnlinePayments payments={payments.data} />}
+        </>
+      )}
+
+      {tab === "tickets" && <LoadState error={sales.error} loading={!data} />}
+      {tab === "tickets" && data && !sales.error && (
         <>
           {data.truncated && (
             <p className="notice">

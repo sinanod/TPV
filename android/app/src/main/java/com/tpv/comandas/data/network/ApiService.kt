@@ -8,6 +8,9 @@ import com.tpv.comandas.data.model.LoginResponse
 import com.tpv.comandas.data.model.Category
 import com.tpv.comandas.data.model.OpenTableResponse
 import com.tpv.comandas.data.model.Order
+import com.tpv.comandas.data.model.PaymentRequest
+import com.tpv.comandas.data.model.PaymentResponse
+import com.tpv.comandas.data.model.SendOrderResponse
 import com.tpv.comandas.data.model.Zone
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -41,8 +44,12 @@ interface ApiService {
     suspend fun deleteLine(@Path("id") orderId: Int, @Path("lineId") lineId: Int): Order
 
     @POST("api/orders/{id}/send")
-    suspend fun sendOrder(@Path("id") orderId: Int): Order
+    suspend fun sendOrder(@Path("id") orderId: Int): SendOrderResponse
 
+    @POST("api/orders/{id}/payments")
+    suspend fun addPayment(@Path("id") orderId: Int, @Body body: PaymentRequest): PaymentResponse
+
+    /** Libera una mesa abierta sin consumir (o cobra todo lo pendiente de una vez) */
     @POST("api/orders/{id}/close")
     suspend fun closeOrder(@Path("id") orderId: Int, @Body body: CloseRequest)
 
