@@ -14,6 +14,37 @@ export interface BusinessInfo {
   ticketFooter: string;
 }
 
+export interface TicketLogoInfo {
+  hash: string;
+  width: number;
+  height: number;
+  /** Ancho impreso en % del ancho útil del papel */
+  sizePercent: number;
+  /** DITHER: tramado (fotos, degradados) · THRESHOLD: blanco y negro (logos planos) */
+  style: "DITHER" | "THRESHOLD";
+}
+
+/** Lo que el restaurante puede ajustar del ticket (lo legal no es configurable). */
+export interface TicketDesign {
+  /** Se puede ocultar si el logo ya lleva el nombre */
+  showTradeName: boolean;
+  /** Líneas extra bajo los datos fiscales: teléfono, web… */
+  headerText: string;
+  footer: string;
+  showTable: boolean;
+  showWaiter: boolean;
+  logo: TicketLogoInfo | null;
+}
+
+export const DEFAULT_TICKET: TicketDesign = {
+  showTradeName: true,
+  headerText: "",
+  footer: "",
+  showTable: true,
+  showWaiter: true,
+  logo: null,
+};
+
 export interface SifProducer {
   producerName: string;
   producerNif: string;
@@ -29,6 +60,7 @@ export interface Settings {
   installationNumber: string;
   receiptPrinterId: number | null;
   business: BusinessInfo | null;
+  ticket: TicketDesign;
   verifactu: {
     enabled: boolean;
     environment: AeatEnvironment;
@@ -43,13 +75,18 @@ export const DEFAULT_SETTINGS: Settings = {
   installationNumber: "local",
   receiptPrinterId: null,
   business: null,
+  ticket: DEFAULT_TICKET,
   verifactu: { enabled: false, environment: "TEST", endDate: null },
   sif: null,
 };
 
 export async function getSettings(db: Db = prisma): Promise<Settings> {
   const row = await db.localSettings.findUnique({ where: { id: 1 } });
-  return row ? { ...DEFAULT_SETTINGS, ...(JSON.parse(row.json) as Partial<Settings>) } : DEFAULT_SETTINGS;
+  if (!row) return DEFAULT_SETTINGS;
+  const saved = JSON.parse(row.json) as Partial<Settings>;
+  // Ajustes guardados antes de que existiera el diseño del ticket: el pie venía con los datos fiscales
+  const ticket = saved.ticket ?? { ...DEFAULT_TICKET, footer: saved.business?.ticketFooter ?? "" };
+  return { ...DEFAULT_SETTINGS, ...saved, ticket };
 }
 
 export async function saveSettings(db: Db, settings: Settings) {

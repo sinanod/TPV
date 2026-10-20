@@ -16,6 +16,8 @@ Qué hace el portal:
 - **Facturas y VERI*FACTU**: facturas emitidas por los TPV, estado de su
   envío a la AEAT, emails de los tickets (reenvío). Cada restaurante decide
   si activa VERI*FACTU y sube su certificado.
+- **Diseño del ticket**: logo, textos de cabecera y pie, qué datos se
+  muestran, con vista previa y ticket de prueba en la impresora del local.
 - **QR de las mesas**: hoja imprimible; el cliente escanea, ve la cuenta y
   paga desde su móvil (`/m/<token>`, página pública sin login).
 - **Dispositivos**: servidores locales vinculados y revocación.

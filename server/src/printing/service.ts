@@ -1,8 +1,9 @@
 import { Printer } from "@prisma/client";
 import { prisma } from "../db";
 import { emitEvent } from "../realtime";
-import { getSettings } from "../settings";
-import { bill, kitchenTicket, PrintDocument, receipt, testPage } from "./document";
+import { getSettings, verifactuActive } from "../settings";
+import { bill, kitchenTicket, PrintDocument, receipt, sampleReceipt, testPage } from "./document";
+import { resolveImages } from "./logo";
 import { toEscPos } from "./escpos";
 import { toHtml } from "./html";
 import { sendRaw } from "./network";
@@ -15,7 +16,8 @@ export interface PrintResult {
   error: string | null;
 }
 
-async function send(printer: Printer, doc: PrintDocument) {
+async function send(printer: Printer, document: PrintDocument) {
+  const doc = await resolveImages(document);
   if (printer.type === "SYSTEM") {
     await printWithAgent(printer.address, await toHtml(doc, printer.width), printer.width);
   } else {
@@ -122,7 +124,7 @@ export async function printReceipt(invoiceId: number): Promise<PrintResult | nul
       },
     },
   });
-  const { business } = await getSettings();
+  const { business, ticket } = await getSettings();
   const o = invoice.order;
   return print(
     printer,
@@ -130,6 +132,7 @@ export async function printReceipt(invoiceId: number): Promise<PrintResult | nul
     `Ticket ${invoice.numSerie}`,
     receipt({
       business,
+      design: ticket,
       numSerie: invoice.numSerie,
       issuedAt: invoice.issuedAt,
       tableLabel: tableLabel(o.table),
@@ -160,7 +163,7 @@ export async function printBill(orderId: number): Promise<PrintResult | null> {
       payments: true,
     },
   });
-  const { business } = await getSettings();
+  const { business, ticket } = await getSettings();
   const lines = order.lines.map((l) => ({ qty: l.qty, name: l.product.name, totalCents: lineTotalCents(l) }));
   return print(
     printer,
@@ -168,6 +171,7 @@ export async function printBill(orderId: number): Promise<PrintResult | null> {
     `Cuenta ${tableLabel(order.table)}`,
     bill({
       business,
+      design: ticket,
       tableLabel: tableLabel(order.table),
       at: new Date(),
       lines,
@@ -175,6 +179,20 @@ export async function printBill(orderId: number): Promise<PrintResult | null> {
       paidCents: order.payments.reduce((s, p) => s + Math.round(p.amount * 100), 0),
     }),
   );
+}
+
+/** Ticket de ejemplo con el diseño actual en la impresora de tickets (lo pide el portal). */
+export async function printSampleReceipt(): Promise<{ ok: boolean; printerName?: string; error?: string }> {
+  const printer = await receiptPrinter();
+  if (!printer) return { ok: false, error: "Este TPV no tiene impresora de tickets (elígela en Ajustes → Datos fiscales)" };
+  const settings = await getSettings();
+  const r = await print(
+    printer,
+    "TEST",
+    "Ticket de prueba",
+    sampleReceipt({ business: settings.business, design: settings.ticket }, verifactuActive(settings)),
+  );
+  return r.ok ? { ok: true, printerName: r.printerName } : { ok: false, printerName: r.printerName, error: r.error ?? "Error" };
 }
 
 export async function printTestPage(printerId: number): Promise<PrintResult> {

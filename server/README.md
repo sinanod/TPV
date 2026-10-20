@@ -45,8 +45,9 @@ restaurante. El código está en `src/cloud/`: `sync.ts` (worker, vinculación),
 - `src/printing/`: tickets de cocina/barra por familia, cuenta previa y
   ticket con QR. `escpos.ts` para impresoras de red (TCP 9100), `html.ts` +
   `agent.ts` para las instaladas en el PC (las imprime la app de escritorio).
-- `src/settings.ts`: datos fiscales, serie de facturación y VERI*FACTU tal y
-  como llegan del portal.
+- `src/settings.ts`: datos fiscales, diseño del ticket, serie de facturación
+  y VERI*FACTU tal y como llegan del portal. El logo se guarda en la tabla
+  `TicketLogo` y `src/printing/raster.ts` lo pasa a puntos para la térmica.
 
 Sin vincular, se puede probar todo menos VERI*FACTU (sin datos fiscales no
 hay registro): da de alta impresoras en la tabla `Printer` y asígnalas a las

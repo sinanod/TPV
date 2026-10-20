@@ -28,8 +28,8 @@ export function BusinessPanel({ business, printers, onSaved }: Props) {
   }
 
   return (
-    <form className="panel settings-form" onSubmit={submit} aria-label="Datos fiscales y ticket">
-      <h2>Datos fiscales y ticket</h2>
+    <form className="panel settings-form" onSubmit={submit} aria-label="Datos fiscales">
+      <h2>Datos fiscales</h2>
       <p className="muted small">Aparecen en la cabecera de cada ticket y en los registros que se envían a Hacienda.</p>
       <div className="form-grid">
         <label>
@@ -53,10 +53,6 @@ export function BusinessPanel({ business, printers, onSaved }: Props) {
         <label>
           Dirección
           <input value={form.address} onChange={set("address")} maxLength={200} placeholder="Calle Mayor 1, Madrid" />
-        </label>
-        <label className="span-2">
-          Pie del ticket
-          <input value={form.ticketFooter} onChange={set("ticketFooter")} maxLength={200} />
         </label>
         <label className="span-2">
           Impresora de tickets de cliente

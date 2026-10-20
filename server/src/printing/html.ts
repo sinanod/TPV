@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { Block, PrintDocument } from "./document";
+import type { ResolvedBlock, ResolvedDocument } from "./document";
 import { columnsFor, row, wrap } from "./escpos";
 
 // Para impresoras instaladas en el sistema (USB) que imprime la app de
@@ -9,7 +9,7 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-async function blockHtml(block: Block, columns: number): Promise<string> {
+async function blockHtml(block: ResolvedBlock, columns: number, widthMm: number): Promise<string> {
   switch (block.t) {
     case "text":
     case "row": {
@@ -32,14 +32,20 @@ async function blockHtml(block: Block, columns: number): Promise<string> {
       const svg = await QRCode.toString(block.data, { type: "svg", errorCorrectionLevel: "M", margin: 0 });
       return `<div class="qr">${svg}</div>`;
     }
+    case "image": {
+      // El driver de la impresora hace el tramado; para logos planos se fuerza el contraste
+      const filter = block.logo.style === "THRESHOLD" ? "grayscale(1) contrast(100)" : "grayscale(1)";
+      const width = (((widthMm - 4) * block.logo.sizePercent) / 100).toFixed(1);
+      return `<div class="logo"><img src="data:image/png;base64,${block.logo.png.toString("base64")}" style="width:${width}mm;filter:${filter}" alt=""></div>`;
+    }
     case "feed":
       return "<br>".repeat(block.lines ?? 1);
   }
 }
 
-export async function toHtml(doc: PrintDocument, widthMm: number): Promise<string> {
+export async function toHtml(doc: ResolvedDocument, widthMm: number): Promise<string> {
   const columns = columnsFor(widthMm);
-  const body = (await Promise.all(doc.blocks.map((b) => blockHtml(b, columns)))).join("\n");
+  const body = (await Promise.all(doc.blocks.map((b) => blockHtml(b, columns, widthMm)))).join("\n");
   // 1ch = ancho de un carácter monoespaciado: ajusta las columnas al papel.
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page { size: ${widthMm}mm auto; margin: 0; }
@@ -48,6 +54,8 @@ body { margin: 0; padding: 2mm; width: ${widthMm - 4}mm; font-family: "Courier N
 pre { margin: 0; white-space: pre-wrap; font: inherit; }
 .qr { text-align: center; margin: 2mm 0; }
 .qr svg { width: 35mm; height: 35mm; }
+.logo { text-align: center; }
+.logo img { height: auto; }
 </style></head><body>
 ${body}
 </body></html>`;

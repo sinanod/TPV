@@ -57,6 +57,21 @@ syncRouter.get(
   }),
 );
 
+// Logo del ticket (el snapshot solo lleva su hash, para no reenviarlo con cada cambio)
+syncRouter.get(
+  "/ticket-logo",
+  requireDevice,
+  h(async (req, res) => {
+    const s = await prisma.tenantSettings.findUnique({
+      where: { tenantId: req.tenantId! },
+      select: { ticketLogo: true, ticketLogoHash: true },
+    });
+    if (!s?.ticketLogo || !s.ticketLogoHash) throw new HttpError(404, "Este restaurante no tiene logo");
+    res.set({ "Content-Type": "image/png", ETag: `"${s.ticketLogoHash}"`, "Cache-Control": "no-cache" });
+    res.send(Buffer.from(s.ticketLogo));
+  }),
+);
+
 const tableStatus = z.enum(["FREE", "OCCUPIED", "BILL_REQUESTED"]);
 const orderStatus = z.enum(["OPEN", "SENT", "SERVED", "PAID", "CANCELLED"]);
 

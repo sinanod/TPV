@@ -96,6 +96,7 @@ export function TablePage({ token, paymentId: initialPaymentId }: { token: strin
   return (
     <main className="c-page">
       <header className="c-header">
+        {view.logoUrl && <img className="c-logo" src={view.logoUrl} alt="" />}
         <h1>{view.restaurant}</h1>
         <p>{view.table}</p>
       </header>

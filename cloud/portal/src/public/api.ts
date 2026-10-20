@@ -1,5 +1,7 @@
 export type TableView = {
   restaurant: string;
+  /** Logo del ticket del restaurante, si tiene */
+  logoUrl: string | null;
   table: string;
   onlinePayments: { enabled: boolean; demo: boolean };
   bill: {

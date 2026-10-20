@@ -33,6 +33,21 @@ export async function cloudRequest<T>(
   return data as T;
 }
 
+/** Descarga un archivo binario de la nube (el logo del ticket). */
+export async function cloudDownload(baseUrl: string, path: string, token: string): Promise<Buffer> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new CloudError(0, "No se pudo conectar con la nube");
+  }
+  if (!res.ok) throw new CloudError(res.status, `La nube respondió ${res.status} al descargar ${path}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 export function normalizeCloudUrl(input: string): string {
   let url: URL;
   try {

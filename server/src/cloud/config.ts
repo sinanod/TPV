@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { BusinessInfo, getSettings, saveSettings, SifProducer } from "../settings";
+import { BusinessInfo, DEFAULT_TICKET, getSettings, saveSettings, SifProducer, TicketDesign } from "../settings";
 import type { AeatEnvironment } from "../fiscal/verifactu";
 
 export interface ConfigSnapshot {
@@ -22,6 +22,8 @@ export interface ConfigSnapshot {
   settings: {
     receiptPrinterId: string | null;
     business: BusinessInfo | null;
+    /** No viene si la nube es anterior al diseño del ticket */
+    ticket?: TicketDesign;
     verifactu: { enabled: boolean; environment: AeatEnvironment; endDate: string | null };
     sif: SifProducer | null;
   };
@@ -128,6 +130,7 @@ export async function applyConfig(snapshot: ConfigSnapshot) {
         installationNumber: snapshot.device.installationNumber,
         receiptPrinterId: st.receiptPrinterId ? (printerIds.get(st.receiptPrinterId) ?? null) : null,
         business: st.business,
+        ticket: st.ticket ?? { ...DEFAULT_TICKET, footer: st.business?.ticketFooter ?? "" },
         verifactu: st.verifactu,
         sif: st.sif,
       });

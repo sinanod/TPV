@@ -23,10 +23,13 @@ publicRouter.use(
 
 const OPEN_STATUSES = ["OPEN", "SENT", "SERVED"];
 
+const PUBLIC_SETTINGS = { tradeName: true, onlinePaymentsEnabled: true, ticketLogoHash: true } as const;
+
 async function tableByToken(token: string) {
   const table = await prisma.diningTable.findUnique({
     where: { qrToken: token },
-    include: { zone: true, tenant: { include: { settings: true } } },
+    // Solo lo que necesitan estas páginas: ni el logo (se sirve aparte) ni el certificado
+    include: { zone: true, tenant: { include: { settings: { select: PUBLIC_SETTINGS } } } },
   });
   if (!table || !table.tenant.active) throw new HttpError(404, "Este código QR no corresponde a ninguna mesa");
   return table;
@@ -68,8 +71,22 @@ publicRouter.get(
       restaurant: s?.tradeName || table.tenant.name,
       table: `${table.zone.name} · Mesa ${table.number}`,
       onlinePayments: { enabled: !!(s?.onlinePaymentsEnabled && provider), demo: provider?.name === "demo" },
+      logoUrl: s?.ticketLogoHash ? `/api/public/tables/${table.qrToken}/logo?v=${s.ticketLogoHash}` : null,
       bill: bill?.view ?? null,
     });
+  }),
+);
+
+// El mismo logo del ticket, para la página de la mesa
+publicRouter.get(
+  "/tables/:token/logo",
+  h(async (req, res) => {
+    const table = await tableByToken(req.params.token);
+    const logo = (await prisma.tenantSettings.findUnique({ where: { tenantId: table.tenantId }, select: { ticketLogo: true } }))
+      ?.ticketLogo;
+    if (!logo) throw new HttpError(404, "Sin logo");
+    res.set({ "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" });
+    res.send(Buffer.from(logo));
   }),
 );
 
@@ -120,7 +137,7 @@ publicRouter.get(
   h(async (req, res) => {
     const payment = await prisma.onlinePayment.findUnique({
       where: { id: req.params.id },
-      include: { table: { include: { zone: true } }, tenant: { include: { settings: true } } },
+      include: { table: { include: { zone: true } }, tenant: { include: { settings: { select: PUBLIC_SETTINGS } } } },
     });
     if (!payment) throw new HttpError(404, "Pago no encontrado");
 

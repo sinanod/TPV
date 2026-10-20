@@ -45,7 +45,7 @@ TPV de hostelería al estilo MissTipsi con dos niveles:
 
 | Dato | Fuente de verdad | Dirección |
 |---|---|---|
-| Carta y familias, impresoras, zonas/mesas, personal (PIN), datos fiscales, VERI*FACTU sí/no | Portal | nube → local (snapshot completo versionado) |
+| Carta y familias, impresoras, zonas/mesas, personal (PIN), datos fiscales, diseño del ticket y logo, VERI*FACTU sí/no | Portal | nube → local (snapshot completo versionado) |
 | Estado de mesas, comandas, cobros | TPV local | local → nube (eventos) |
 | Facturas simplificadas y su registro VERI*FACTU (huella, QR) | TPV local (las genera) | local → nube, que las guarda tal cual y las remite a la AEAT |
 | Pagos desde el móvil del cliente | Nube (pasarela) | nube → local, el TPV los registra como un cobro más |
@@ -208,6 +208,35 @@ alterarlos.
 
 Pendiente: facturas completas (F1), rectificativas y anulaciones.
 
+## Diseño del ticket
+
+Cada restaurante ajusta en el portal (Ajustes → Diseño del ticket) el ticket
+que recibe el cliente, con una vista previa que reproduce la maqueta del TPV:
+
+- **Logo**: se sube cualquier imagen; el navegador la reduce a 576×320 px
+  como mucho (el ancho útil de una térmica de 80 mm) y la nube la vuelve a
+  codificar desde los píxeles (PNG sin transparencia ni metadatos). Tamaño
+  en el papel (40–100 % del ancho) y cómo pasarlo a blanco y negro: nítido
+  (umbral, para logos planos) o tramado (Floyd–Steinberg, para fotos).
+- **Nombre comercial** (se puede ocultar si el logo ya lo lleva), **texto de
+  cabecera** y **pie** de hasta 4 líneas, y si se muestran la mesa y el
+  camarero.
+- Lo que exige la ley (razón social, NIF, número, fecha, desglose de IVA, QR
+  tributario arriba) no es configurable.
+
+El diseño viaja en el snapshot de configuración; el logo solo por su hash y
+el TPV lo descarga aparte (`GET /api/sync/ticket-logo`) cuando cambia. Al
+imprimir, el documento guardado en `PrintJob` solo lleva la referencia al
+logo, que se carga al enviarlo: en ESC/POS va como imagen de trama
+(`GS v 0`) reducida al ancho en puntos del papel; en impresoras USB, como
+imagen en el HTML. Si el logo aún no ha llegado, el ticket sale sin él.
+
+«Imprimir ticket de prueba» en el portal pide a cada TPV conectado (socket
+`print:sample-receipt` con respuesta) que saque un ticket de ejemplo, marcado
+como sin validez, en su impresora de tickets; el portal muestra cómo le fue a
+cada uno. El mismo logo y textos se usan en el email del ticket y en la
+página del QR de la mesa.
+
 ## Emails al cliente
 
 Si en el cobro se indica un email (en el TPV, en Android o en el pago
@@ -265,14 +294,17 @@ Socket.IO `/realtime`: `table:updated`, `order:updated`, `order:sent`,
   `POST /api/portal/tables/:id/qr/rotate`
 - Facturación: `GET /api/portal/invoices`, `POST /api/portal/invoices/:id/email`,
   `GET /api/portal/verifactu/submissions`, `GET /api/portal/online-payments`,
-  `GET /api/portal/settings`, `PUT /api/portal/settings/business|verifactu|certificate|online-payments`,
+  `GET /api/portal/settings`, `PUT /api/portal/settings/business|verifactu|certificate|online-payments|ticket`,
+  `PUT|DELETE /api/portal/settings/ticket/logo`, `POST /api/portal/settings/ticket/test-print`,
   `DELETE /api/portal/settings/certificate`
 - Público (cliente en la mesa, sin login): `GET /api/public/tables/:token`,
+  `GET /api/public/tables/:token/logo`,
   `POST /api/public/tables/:token/payments`, `GET /api/public/payments/:id`
 - Sincronización: `POST /api/sync/register`, `GET /api/sync/config`,
-  `POST /api/sync/events`, `GET /api/sync/online-payments`
+  `POST /api/sync/events`, `GET /api/sync/online-payments`,
+  `GET /api/sync/ticket-logo`
 - Socket.IO `/portal` (token de portal): `live:updated`, `config:updated`,
   `devices:updated`. `/device` (token de dispositivo): `config:updated`,
-`payments:pending`.
+`payments:pending`, `print:sample-receipt` (con respuesta del TPV).
 
 Detalle de despliegue y operación: [`cloud/README.md`](./cloud/README.md).

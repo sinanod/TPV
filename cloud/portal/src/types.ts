@@ -108,12 +108,31 @@ export type Business = {
   legalName: string;
   nif: string;
   address: string;
-  ticketFooter: string;
   receiptPrinterId: string | null;
 };
 
+export type LogoStyle = "DITHER" | "THRESHOLD";
+
+export type TicketDesign = {
+  showTradeName: boolean;
+  headerText: string;
+  footer: string;
+  showTable: boolean;
+  showWaiter: boolean;
+  /** % del ancho útil del papel */
+  logoSize: number;
+  logoStyle: LogoStyle;
+};
+
+export type TicketSettings = TicketDesign & {
+  logo: { hash: string; width: number; height: number; dataUrl: string } | null;
+};
+
+export type TestPrintResult = { deviceName: string; ok: boolean; printerName?: string; error?: string };
+
 export type Settings = {
   business: Business;
+  ticket: TicketSettings;
   verifactu: {
     enabled: boolean;
     environment: AeatEnvironment;

@@ -1,13 +1,15 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
 import { config } from "../config";
 import { requirePortal } from "../auth";
 import { h, HttpError } from "../lib/http";
-import { bumpConfig, getTenantSettings } from "../lib/configSync";
+import { bumpConfig, getTenantSettings, ticketDesign } from "../lib/configSync";
+import { sanitizeLogo } from "../lib/ticketLogo";
 import { encrypt, inspectPfx } from "../lib/certificate";
 import { isValidNif, normalizeNif } from "../lib/nif";
-import { emitToPortal } from "../realtime";
+import { emitToPortal, requestFromDevices } from "../realtime";
 
 export const settingsRouter = Router();
 settingsRouter.use(requirePortal);
@@ -29,6 +31,12 @@ function verifactuMissing(s: Settings) {
   return missing;
 }
 
+/** Los ajustes se crean al primer uso: actualizar sin que existan no debe fallar. */
+async function updateSettings(tenantId: string, data: Prisma.TenantSettingsUncheckedUpdateInput) {
+  await getTenantSettings(tenantId);
+  await prisma.tenantSettings.update({ where: { tenantId }, data });
+}
+
 async function view(tenantId: string) {
   const s = await getTenantSettings(tenantId);
   const [pending, rejected] = await Promise.all([
@@ -41,9 +49,18 @@ async function view(tenantId: string) {
       legalName: s.legalName,
       nif: s.nif,
       address: s.address,
-      ticketFooter: s.ticketFooter,
       receiptPrinterId: s.receiptPrinterId,
     },
+    ticket: (() => {
+      const design = ticketDesign(s);
+      return {
+        ...design,
+        // Se eligen antes de subir el logo: van siempre, haya logo o no
+        logoSize: s.ticketLogoSize,
+        logoStyle: s.ticketLogoStyle,
+        logo: design.logo && { ...design.logo, dataUrl: `data:image/png;base64,${Buffer.from(s.ticketLogo!).toString("base64")}` },
+      };
+    })(),
     verifactu: {
       enabled: s.verifactuEnabled,
       environment: s.verifactuEnvironment,
@@ -74,7 +91,6 @@ const businessSchema = z.object({
   legalName: z.string().trim().max(120),
   nif: z.string().trim().max(20),
   address: z.string().trim().max(200).default(""),
-  ticketFooter: z.string().trim().max(200).default(""),
   receiptPrinterId: z.string().uuid().nullable().default(null),
 });
 
@@ -93,7 +109,7 @@ settingsRouter.put(
     if (current.verifactuEnabled && (!nif || !data.legalName)) {
       throw new HttpError(409, "Con VERI*FACTU activado el NIF y la razón social son obligatorios");
     }
-    await prisma.tenantSettings.update({ where: { tenantId: req.tenantId! }, data: { ...data, nif } });
+    await updateSettings(req.tenantId!, { ...data, nif });
     await bumpConfig(req.tenantId!);
     res.json(await view(req.tenantId!));
   }),
@@ -132,9 +148,10 @@ settingsRouter.put(
       update = { verifactuEnabled: false, verifactuEndDate: null };
     }
 
-    await prisma.tenantSettings.update({
-      where: { tenantId: req.tenantId! },
-      data: { ...update, verifactuEnvironment: data.environment, certificateKind: data.certificateKind },
+    await updateSettings(req.tenantId!, {
+      ...update,
+      verifactuEnvironment: data.environment,
+      certificateKind: data.certificateKind,
     });
     await bumpConfig(req.tenantId!);
     emitToPortal(req.tenantId!, "verifactu:updated");
@@ -153,15 +170,12 @@ settingsRouter.put(
     const { pfxBase64, password } = certificateSchema.parse(req.body);
     const pfx = Buffer.from(pfxBase64, "base64");
     const info = inspectPfx(pfx, password);
-    await prisma.tenantSettings.update({
-      where: { tenantId: req.tenantId! },
-      data: {
-        certificatePfx: encrypt(pfx),
-        certificatePassword: encrypt(Buffer.from(password, "utf8")),
-        certificateSubject: info.subject,
-        certificateNotAfter: info.notAfter,
-        aeatLastError: null,
-      },
+    await updateSettings(req.tenantId!, {
+      certificatePfx: encrypt(pfx),
+      certificatePassword: encrypt(Buffer.from(password, "utf8")),
+      certificateSubject: info.subject,
+      certificateNotAfter: info.notAfter,
+      aeatLastError: null,
     });
     emitToPortal(req.tenantId!, "verifactu:updated");
     res.json(await view(req.tenantId!));
@@ -173,11 +187,101 @@ settingsRouter.delete(
   h(async (req, res) => {
     const s = await getTenantSettings(req.tenantId!);
     if (s.verifactuEnabled) throw new HttpError(409, "Desactiva VERI*FACTU antes de borrar el certificado");
-    await prisma.tenantSettings.update({
-      where: { tenantId: req.tenantId! },
-      data: { certificatePfx: null, certificatePassword: null, certificateSubject: null, certificateNotAfter: null },
+    await updateSettings(req.tenantId!, {
+      certificatePfx: null,
+      certificatePassword: null,
+      certificateSubject: null,
+      certificateNotAfter: null,
     });
     res.json(await view(req.tenantId!));
+  }),
+);
+
+// ---------- Diseño del ticket ----------
+
+const multiline = (max: number, lines: number) =>
+  z
+    .string()
+    .max(max)
+    .transform((v) =>
+      v
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .refine((v) => v.split("\n").length <= lines, `Como mucho ${lines} líneas`);
+
+const ticketSchema = z.object({
+  showTradeName: z.boolean(),
+  headerText: multiline(200, 4),
+  footer: multiline(200, 4),
+  showTable: z.boolean(),
+  showWaiter: z.boolean(),
+  logoSize: z.number().int().min(20).max(100),
+  logoStyle: z.enum(["DITHER", "THRESHOLD"]),
+});
+
+settingsRouter.put(
+  "/settings/ticket",
+  h(async (req, res) => {
+    const d = ticketSchema.parse(req.body);
+    await updateSettings(req.tenantId!, {
+      ticketShowTradeName: d.showTradeName,
+      ticketHeaderText: d.headerText,
+      ticketFooter: d.footer,
+      ticketShowTable: d.showTable,
+      ticketShowWaiter: d.showWaiter,
+      ticketLogoSize: d.logoSize,
+      ticketLogoStyle: d.logoStyle,
+    });
+    await bumpConfig(req.tenantId!);
+    res.json(await view(req.tenantId!));
+  }),
+);
+
+settingsRouter.put(
+  "/settings/ticket/logo",
+  h(async (req, res) => {
+    const { pngBase64 } = z.object({ pngBase64: z.string().min(1).max(1_500_000) }).parse(req.body);
+    const logo = sanitizeLogo(Buffer.from(pngBase64, "base64"));
+    await updateSettings(req.tenantId!, {
+      ticketLogo: logo.png,
+      ticketLogoHash: logo.hash,
+      ticketLogoWidth: logo.width,
+      ticketLogoHeight: logo.height,
+    });
+    await bumpConfig(req.tenantId!);
+    res.json(await view(req.tenantId!));
+  }),
+);
+
+settingsRouter.delete(
+  "/settings/ticket/logo",
+  h(async (req, res) => {
+    await updateSettings(req.tenantId!, {
+      ticketLogo: null,
+      ticketLogoHash: null,
+      ticketLogoWidth: null,
+      ticketLogoHeight: null,
+    });
+    await bumpConfig(req.tenantId!);
+    res.json(await view(req.tenantId!));
+  }),
+);
+
+// Ticket de muestra en la impresora de tickets de cada TPV conectado, para
+// ver el diseño en papel. Cada TPV responde cómo le ha ido.
+settingsRouter.post(
+  "/settings/ticket/test-print",
+  h(async (req, res) => {
+    const results = await requestFromDevices<{ ok: boolean; printerName?: string; error?: string }>(
+      req.tenantId!,
+      "print:sample-receipt",
+      {},
+      45_000,
+    );
+    res.json({ results });
   }),
 );
 
@@ -188,7 +292,7 @@ settingsRouter.put(
     if (enabled && !config.paymentProvider) {
       throw new HttpError(409, "El pago desde el móvil no está disponible: falta configurar una pasarela de pago en el servidor");
     }
-    await prisma.tenantSettings.update({ where: { tenantId: req.tenantId! }, data: { onlinePaymentsEnabled: enabled } });
+    await updateSettings(req.tenantId!, { onlinePaymentsEnabled: enabled });
     res.json(await view(req.tenantId!));
   }),
 );

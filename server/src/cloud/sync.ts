@@ -2,7 +2,7 @@ import { io, Socket } from "socket.io-client";
 import { prisma } from "../db";
 import { HttpError } from "../http";
 import { emitEvent } from "../realtime";
-import { CloudError, cloudRequest, normalizeCloudUrl } from "./client";
+import { CloudError, cloudDownload, cloudRequest, normalizeCloudUrl } from "./client";
 import { applyConfig, ConfigSnapshot } from "./config";
 import {
   enqueueDevicePrinters,
@@ -16,6 +16,7 @@ import {
 import { publishPayment } from "../payments";
 import { registerPayment } from "../billing";
 import { getSettings, saveSettings } from "../settings";
+import { printSampleReceipt } from "../printing/service";
 
 const FLUSH_INTERVAL_MS = 10_000;
 // Redes de seguridad por si se pierde algún aviso por socket
@@ -108,12 +109,33 @@ async function pullConfig() {
         await applyConfig(snapshot);
         emitEvent("config:updated", { version: snapshot.version });
       }
+      // Fuera del «si ha cambiado»: si una descarga falló, se reintenta en la siguiente consulta
+      await syncTicketLogo(link);
     } while (state.pullAgain);
   } catch (e) {
     await setError(describe(e));
   } finally {
     state.pulling = false;
   }
+}
+
+async function syncTicketLogo(link: { cloudUrl: string; deviceToken: string }) {
+  const wanted = (await getSettings()).ticket.logo?.hash ?? null;
+  const current = await prisma.ticketLogo.findUnique({ where: { id: 1 }, select: { hash: true } });
+  if ((current?.hash ?? null) === wanted) return;
+  if (!wanted) {
+    await prisma.ticketLogo.deleteMany();
+    return;
+  }
+  const png = await cloudDownload(link.cloudUrl, "/api/sync/ticket-logo", link.deviceToken);
+  await prisma.ticketLogo.upsert({ where: { id: 1 }, create: { id: 1, hash: wanted, png }, update: { hash: wanted, png } });
+}
+
+/** Espera a tener la configuración (y el logo) al día, p. ej. antes de imprimir un ticket de prueba. */
+async function configUpToDate(timeoutMs = 15_000) {
+  await pullConfig();
+  const start = Date.now();
+  while (state.pulling && Date.now() - start < timeoutMs) await new Promise((r) => setTimeout(r, 100));
 }
 
 // ---------- Pagos del cliente desde su móvil ----------
@@ -211,6 +233,15 @@ export async function startSync() {
   });
   socket.on("config:updated", () => void pullConfig());
   socket.on("payments:pending", () => void applyOnlinePayments());
+  // Desde el portal, al ajustar el diseño del ticket
+  socket.on("print:sample-receipt", async (_payload: unknown, ack?: (r: unknown) => void) => {
+    try {
+      await configUpToDate();
+      ack?.(await printSampleReceipt());
+    } catch (e) {
+      ack?.({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   timers = [
     setInterval(() => void flush(), FLUSH_INTERVAL_MS),

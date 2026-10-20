@@ -49,6 +49,15 @@ input {
   text-align: center;
   padding: 12px 0 4px;
 }
+.c-logo {
+  display: block;
+  max-width: 180px;
+  max-height: 72px;
+  margin: 0 auto 0.5rem;
+  object-fit: contain;
+  /* El logo viene sobre blanco (el papel del ticket): así se funde con el fondo */
+  mix-blend-mode: multiply;
+}
 .c-header h1 {
   margin: 0;
   font-size: 1.5rem;

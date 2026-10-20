@@ -19,6 +19,8 @@ Qué incluye:
   el cliente puede pagar desde su móvil con el QR de la mesa (pasarela de
   demostración por ahora).
 - **Ticket por email** al cliente, con el QR tributario.
+- **Ticket con el logo** del restaurante y textos propios, ajustable desde
+  el portal con vista previa y ticket de prueba.
 - **VERI*FACTU** activable por cada restaurante en su portal: el TPV genera
   los registros y el QR, la nube los remite a la AEAT con el certificado del
   restaurante.

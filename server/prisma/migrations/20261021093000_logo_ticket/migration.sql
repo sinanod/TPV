@@ -1,0 +1,7 @@
+-- CreateTable
+CREATE TABLE "TicketLogo" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT DEFAULT 1,
+    "hash" TEXT NOT NULL,
+    "png" BLOB NOT NULL
+);
+

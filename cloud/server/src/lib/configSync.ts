@@ -6,6 +6,29 @@ export async function getTenantSettings(tenantId: string) {
   return prisma.tenantSettings.upsert({ where: { tenantId }, create: { tenantId }, update: {} });
 }
 
+type TenantSettings = Awaited<ReturnType<typeof getTenantSettings>>;
+
+/** Diseño del ticket tal y como lo aplican los TPV (el logo se descarga aparte por su hash). */
+export function ticketDesign(s: TenantSettings) {
+  return {
+    showTradeName: s.ticketShowTradeName,
+    headerText: s.ticketHeaderText,
+    footer: s.ticketFooter,
+    showTable: s.ticketShowTable,
+    showWaiter: s.ticketShowWaiter,
+    logo:
+      s.ticketLogo && s.ticketLogoHash
+        ? {
+            hash: s.ticketLogoHash,
+            width: s.ticketLogoWidth!,
+            height: s.ticketLogoHeight!,
+            sizePercent: s.ticketLogoSize,
+            style: s.ticketLogoStyle as "DITHER" | "THRESHOLD",
+          }
+        : null,
+  };
+}
+
 /** Configuración completa de un restaurante tal y como la recibe uno de sus TPV. */
 export async function buildConfigSnapshot(tenantId: string, deviceId: string) {
   const [tenant, settings, device, printers, categories, products, zones, tables, staff] = await Promise.all([
@@ -45,9 +68,11 @@ export async function buildConfigSnapshot(tenantId: string, deviceId: string) {
             legalName: settings.legalName,
             nif: settings.nif,
             address: settings.address,
+            // Para TPV de versiones anteriores, que no conocen `ticket`
             ticketFooter: settings.ticketFooter,
           }
         : null,
+      ticket: ticketDesign(settings),
       verifactu: {
         enabled: settings.verifactuEnabled,
         environment: settings.verifactuEnvironment,

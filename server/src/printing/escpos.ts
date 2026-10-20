@@ -1,4 +1,6 @@
-import { Block, PrintDocument } from "./document";
+import type { ResolvedBlock, ResolvedDocument } from "./document";
+import type { TicketLogo } from "./logo";
+import { printableDots, resize, toBitmap } from "./raster";
 
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -77,9 +79,28 @@ function qrCommands(data: string): number[] {
   ];
 }
 
+// Bandas de 128 filas: algunas impresoras no aceptan imágenes muy altas de una vez
+const RASTER_BAND_ROWS = 128;
+
+function imageCommands(logo: TicketLogo, widthMm: number): number[] {
+  const dots = printableDots(widthMm);
+  const target = Math.max(8, Math.min(dots, Math.round((dots * logo.sizePercent) / 100 / 8) * 8));
+  const bmp = toBitmap(resize(logo.image, target), logo.style);
+  const rowBytes = bmp.width / 8;
+  const out: number[] = [ESC, 0x61, 1];
+  for (let y = 0; y < bmp.height; y += RASTER_BAND_ROWS) {
+    const rows = Math.min(RASTER_BAND_ROWS, bmp.height - y);
+    // GS v 0 m xL xH yL yH d1…dk: imagen de trama, modo normal
+    out.push(GS, 0x76, 0x30, 0x00, rowBytes & 0xff, rowBytes >> 8, rows & 0xff, rows >> 8);
+    for (const b of bmp.bits.subarray(y * rowBytes, (y + rows) * rowBytes)) out.push(b);
+  }
+  out.push(ESC, 0x61, 0);
+  return out;
+}
+
 const ALIGN = { left: 0, center: 1, right: 2 } as const;
 
-function blockBytes(block: Block, columns: number): number[] {
+function blockBytes(block: ResolvedBlock, columns: number, widthMm: number): number[] {
   const out: number[] = [];
   const lines = (texts: string[]) => texts.forEach((l) => out.push(...encodePc858(l), 0x0a));
 
@@ -101,6 +122,9 @@ function blockBytes(block: Block, columns: number): number[] {
     case "qr":
       out.push(ESC, 0x61, 1, ...qrCommands(block.data), 0x0a, ESC, 0x61, 0);
       break;
+    case "image":
+      out.push(...imageCommands(block.logo, widthMm));
+      break;
     case "feed":
       out.push(ESC, 0x64, block.lines ?? 1);
       break;
@@ -109,10 +133,10 @@ function blockBytes(block: Block, columns: number): number[] {
 }
 
 /** Documento → bytes ESC/POS, terminando con avance y corte parcial. */
-export function toEscPos(doc: PrintDocument, widthMm: number): Buffer {
+export function toEscPos(doc: ResolvedDocument, widthMm: number): Buffer {
   const columns = columnsFor(widthMm);
   const bytes = [ESC, 0x40, ESC, 0x74, CODE_PAGE_PC858];
-  for (const block of doc.blocks) bytes.push(...blockBytes(block, columns));
+  for (const block of doc.blocks) bytes.push(...blockBytes(block, columns, widthMm));
   bytes.push(GS, 0x56, 0x42, 0x03);
   return Buffer.from(bytes);
 }

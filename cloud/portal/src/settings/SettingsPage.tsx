@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { Settings } from "../types";
-import { api } from "../lib/api";
+import { api, getStoredTenant } from "../lib/api";
 import { toast } from "../lib/notify";
 import { useResource } from "../lib/useResource";
 import { LoadState, PageHeader } from "../components/common";
 import { BusinessPanel } from "./BusinessPanel";
 import { VerifactuPanel } from "./VerifactuPanel";
+import { TicketPanel } from "./TicketPanel";
 
 export function SettingsPage() {
   const settings = useResource(api.settings, ["verifactu:updated", "config:updated"]);
@@ -25,6 +26,12 @@ export function SettingsPage() {
       {s && (
         <>
           <BusinessPanel business={s.business} printers={printers.data?.printers ?? []} onSaved={saved} />
+          <TicketPanel
+            settings={s}
+            printers={printers.data?.printers ?? []}
+            restaurantName={getStoredTenant()?.name ?? ""}
+            onSaved={saved}
+          />
           <VerifactuPanel verifactu={s.verifactu} submissions={submissions.data} onSaved={saved} />
           <OnlinePaymentsPanel settings={s} onSaved={saved} />
           <section className="panel">

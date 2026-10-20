@@ -237,3 +237,10 @@ model LocalSettings {
   id   Int    @id @default(1)
   json String
 }
+
+// Logo del ticket tal y como llega del portal (PNG saneado por la nube)
+model TicketLogo {
+  id   Int    @id @default(1)
+  hash String
+  png  Bytes
+}

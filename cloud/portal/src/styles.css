@@ -38,7 +38,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font-family: inherit;
   font-size: 1rem;
 }
@@ -120,7 +121,8 @@ a {
 
 /* Formularios */
 input,
-select {
+select,
+textarea {
   padding: 0.55rem 0.6rem;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
@@ -131,6 +133,7 @@ select {
 }
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 .btn:focus-visible,
 .main-nav a:focus-visible,
 tr.clickable:focus-visible {
@@ -1223,5 +1226,116 @@ fieldset.segmented input {
   }
   .qr-cta {
     font-size: 12pt;
+  }
+}
+
+/* Diseño del ticket */
+textarea {
+  resize: vertical;
+  line-height: 1.4;
+}
+.ticket-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1.5rem;
+  align-items: start;
+}
+.ticket-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.ticket-form .sub-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.ticket-form fieldset:disabled {
+  opacity: 0.5;
+}
+.logo-current {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.logo-current img {
+  max-width: 180px;
+  max-height: 80px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px;
+}
+.print-results {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+.ok-text {
+  color: var(--online);
+}
+.ticket-preview {
+  margin: 0;
+  position: sticky;
+  top: 1rem;
+}
+/* El papel: blanco y texto negro monoespaciado, a tantas columnas como la impresora */
+.ticket-paper {
+  --paper: 300px;
+  width: var(--paper);
+  max-width: 100%;
+  margin: 0 auto 0.5rem;
+  background: #fff;
+  color: #000;
+  padding: 14px 10px 24px;
+  border-radius: 2px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-family: "Courier New", Courier, monospace;
+  /* 0,6 = ancho de un carácter monoespaciado respecto a su tamaño */
+  font-size: calc((var(--paper) - 20px) / var(--cols) / 0.6);
+  line-height: 1.25;
+  overflow: hidden;
+}
+.ticket-line {
+  white-space: pre;
+}
+.ticket-line.strong,
+.ticket-qr .strong {
+  font-weight: bold;
+}
+.ticket-line.large {
+  font-size: 2em;
+  line-height: 1.1;
+}
+.ticket-logo {
+  text-align: center;
+  margin-bottom: 0.6em;
+}
+.ticket-logo canvas {
+  /* Suavizado al reducir: el tramado se ve como el gris que percibe el ojo en el papel */
+  image-rendering: auto;
+  max-width: 100%;
+}
+.ticket-qr {
+  text-align: center;
+  margin-bottom: 0.8em;
+}
+.ticket-qr-box {
+  width: 35%;
+  aspect-ratio: 1;
+  margin: 0.3em auto;
+  background:
+    repeating-linear-gradient(90deg, #000 0 6%, transparent 6% 12%),
+    repeating-linear-gradient(0deg, #000 0 6%, transparent 6% 12%);
+  opacity: 0.85;
+}
+@media (max-width: 900px) {
+  .ticket-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ticket-preview {
+    position: static;
   }
 }

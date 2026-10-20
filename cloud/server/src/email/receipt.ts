@@ -6,6 +6,12 @@ export interface ReceiptData {
   nif: string;
   address: string;
   footer: string;
+  /** Diseño del ticket del restaurante */
+  showTradeName: boolean;
+  headerText: string;
+  showTable: boolean;
+  /** PNG del logo, si tiene */
+  logo: Buffer | null;
   numSerie: string;
   issuedAt: Date;
   tableLabel: string;
@@ -25,6 +31,8 @@ function euros(cents: number) {
 function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+const lines = (s: string) => esc(s).replace(/\n/g, "<br>");
 
 const when = (d: Date) =>
   d.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Madrid" });
@@ -48,11 +56,12 @@ export async function renderReceiptEmail(r: ReceiptData) {
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#111">
 <div style="max-width:420px;margin:24px auto;background:#fff;border-radius:8px;padding:24px">
 ${qrBlock}
-<h1 style="font-size:20px;margin:0;text-align:center">${esc(r.businessName)}</h1>
-<p style="margin:4px 0 0;text-align:center;font-size:13px;color:#555">${esc(r.legalName)} · NIF ${esc(r.nif)}${r.address ? `<br>${esc(r.address)}` : ""}</p>
+${r.logo ? `<p style="margin:0 0 12px;text-align:center"><img src="cid:logo" alt="${esc(r.businessName)}" style="max-width:220px;max-height:120px"></p>` : ""}
+${r.showTradeName || !r.logo ? `<h1 style="font-size:20px;margin:0;text-align:center">${esc(r.businessName)}</h1>` : ""}
+<p style="margin:4px 0 0;text-align:center;font-size:13px;color:#555">${esc(r.legalName)} · NIF ${esc(r.nif)}${r.address ? `<br>${esc(r.address)}` : ""}${r.headerText ? `<br>${lines(r.headerText)}` : ""}</p>
 <hr style="border:none;border-top:1px solid #ddd;margin:16px 0">
 <p style="margin:0;font-weight:bold">Factura simplificada ${esc(r.numSerie)}</p>
-<p style="margin:2px 0 0;font-size:13px;color:#555">${esc(when(r.issuedAt))} · ${esc(r.tableLabel)}</p>
+<p style="margin:2px 0 0;font-size:13px;color:#555">${esc(when(r.issuedAt))}${r.showTable ? ` · ${esc(r.tableLabel)}` : ""}</p>
 <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:14px">
 ${r.lines.map((l) => row(`${l.qty} × ${l.name}`, euros(l.totalCents))).join("")}
 <tr><td colspan="2"><hr style="border:none;border-top:1px solid #ddd;margin:8px 0"></td></tr>
@@ -61,16 +70,17 @@ ${r.breakdown.map((b) => row(`IVA ${b.rate}% sobre ${euros(b.baseCents)}`, euros
 <tr><td colspan="2"><hr style="border:none;border-top:1px solid #ddd;margin:8px 0"></td></tr>
 ${r.payments.map((p) => row(PAYMENT_LABEL[p.method] ?? p.method, euros(p.amountCents))).join("")}
 </table>
-${r.footer ? `<p style="margin:16px 0 0;text-align:center;font-size:13px">${esc(r.footer)}</p>` : ""}
+${r.footer ? `<p style="margin:16px 0 0;text-align:center;font-size:13px">${lines(r.footer)}</p>` : ""}
 </div></body></html>`;
 
   const text = [
     r.businessName,
     `${r.legalName} · NIF ${r.nif}`,
     r.address,
+    ...(r.headerText ? r.headerText.split("\n") : []),
     "",
     `Factura simplificada ${r.numSerie}`,
-    `${when(r.issuedAt)} · ${r.tableLabel}`,
+    r.showTable ? `${when(r.issuedAt)} · ${r.tableLabel}` : when(r.issuedAt),
     "",
     ...r.lines.map((l) => `${l.qty} x ${l.name}  ${euros(l.totalCents)}`),
     "",
@@ -89,6 +99,9 @@ ${r.footer ? `<p style="margin:16px 0 0;text-align:center;font-size:13px">${esc(
     subject,
     html,
     text,
-    attachments: qrPng ? [{ filename: "qr-tributario.png", content: qrPng, cid: "qr-tributario" }] : [],
+    attachments: [
+      ...(qrPng ? [{ filename: "qr-tributario.png", content: qrPng, cid: "qr-tributario" }] : []),
+      ...(r.logo ? [{ filename: "logo.png", content: r.logo, cid: "logo" }] : []),
+    ],
   };
 }

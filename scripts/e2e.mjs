@@ -29,6 +29,7 @@ if (!fs.existsSync(`${CERTS}/client.pfx`)) {
 }
 const require = createRequire(`${ROOT}/cloud/server/package.json`);
 const { SMTPServer } = require("smtp-server");
+const { PNG } = require("pngjs");
 
 const CLOUD = "http://127.0.0.1:8095";
 const LOCAL = "http://127.0.0.1:4005";
@@ -207,6 +208,24 @@ try {
   const mail = await waitFor(async () => mails.find((m) => m.to.includes("cliente@ejemplo.com")), "email al cliente", 40000);
   check(/cid:qr-tributario/.test(mail.data) && mail.data.includes(p2.invoice.numSerie), "email del ticket con el QR tributario");
 
+  // ---------- Diseño del ticket con logo ----------
+  log("Portal: logo y diseño del ticket; ticket de prueba en el TPV");
+  const logo = new PNG({ width: 240, height: 100 });
+  for (let i = 0; i < 240 * 100; i++) {
+    const black = (i % 240) < 120;
+    logo.data.fill(black ? 0 : 255, i * 4, i * 4 + 3);
+    logo.data[i * 4 + 3] = black ? 255 : 0;
+  }
+  await api(CLOUD, "PUT", "/api/portal/settings/ticket/logo", { pngBase64: PNG.sync.write(logo).toString("base64") }, portal);
+  await api(CLOUD, "PUT", "/api/portal/settings/ticket", { showTradeName: false, headerText: "Tel. 910 000 000", footer: "¡Hasta pronto!", showTable: true, showWaiter: false, logoSize: 50, logoStyle: "THRESHOLD" }, portal);
+  const jobsBefore = printed.length;
+  const { results } = await api(CLOUD, "POST", "/api/portal/settings/ticket/test-print", {}, portal);
+  check(results.length === 1 && results[0].ok, `ticket de prueba pedido desde el portal: ${JSON.stringify(results)}`);
+  const sample = await waitFor(async () => (printed.length > jobsBefore ? printed.at(-1) : null), "ticket de prueba impreso");
+  // 50 % de 576 puntos = 288 → 36 bytes por fila; 100·288/240 = 120 filas
+  check(sample.includes(Buffer.from([0x1d, 0x76, 0x30, 0x00, 36, 0, 120, 0])), "el ticket de prueba lleva el logo como imagen de trama");
+  check(sample.toString("latin1").includes("Hasta pronto") && sample.toString("latin1").includes("Tel. 910 000 000"), "con la cabecera y el pie configurados");
+
   // ---------- Pago desde el móvil del cliente ----------
   log("Mesa B: el cliente paga desde el QR de la mesa");
   await api(LOCAL, "POST", `/api/tables/${t2.id}/open`, {}, waiter);
@@ -239,9 +258,9 @@ try {
     return list.registeredByRestaurant ? list : null;
   }, "pago móvil marcado como registrado en la nube", 20000);
   check(pm.status === "SUCCEEDED" && pm.refundCents === 0, `pago móvil en la nube: ${pm.status}, registrado por el TPV`);
-  await waitFor(async () => mails.find((m) => m.to.includes("movil@ejemplo.com")), "email del pago móvil", 40000);
-  check(true, "email del ticket al cliente que pagó desde el móvil");
-  check(printed.length >= 4, `trabajos recibidos por la impresora simulada: ${printed.length}`);
+  const mobileMail = await waitFor(async () => mails.find((m) => m.to.includes("movil@ejemplo.com")), "email del pago móvil", 40000);
+  check(mobileMail.data.includes("cid:logo"), "email del ticket al cliente que pagó desde el móvil, con el logo");
+  check(printed.length >= 5, `trabajos recibidos por la impresora simulada: ${printed.length}`);
 } catch (e) {
   failures++;
   console.error("✘", e.message);

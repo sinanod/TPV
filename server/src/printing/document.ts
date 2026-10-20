@@ -2,15 +2,26 @@
 // (impresoras de red) o a HTML (impresoras del sistema vía la app de
 // escritorio).
 
+import type { TicketDesign, TicketLogoInfo } from "../settings";
+import type { TicketLogo } from "./logo";
+
 export type Block =
   | { t: "text"; text: string; align?: "left" | "center" | "right"; bold?: boolean; large?: boolean }
   | { t: "row"; left: string; right: string; bold?: boolean; large?: boolean }
   | { t: "rule" }
   | { t: "qr"; data: string }
+  // Solo la referencia al logo: el documento se guarda en JSON para poder reimprimirlo
+  | { t: "image"; logo: TicketLogoInfo }
   | { t: "feed"; lines?: number };
 
 export interface PrintDocument {
   blocks: Block[];
+}
+
+/** Documento listo para la impresora, con la imagen del logo ya cargada. */
+export type ResolvedBlock = Exclude<Block, { t: "image" }> | { t: "image"; logo: TicketLogo };
+export interface ResolvedDocument {
+  blocks: ResolvedBlock[];
 }
 
 export function euros(cents: number): string {
@@ -67,8 +78,13 @@ export interface BusinessHeader {
   ticketFooter: string;
 }
 
-export interface ReceiptInput {
+/** Cabecera configurable del restaurante: logo, nombre, datos fiscales y texto libre */
+export interface TicketHeader {
   business: BusinessHeader | null;
+  design: TicketDesign;
+}
+
+export interface ReceiptInput extends TicketHeader {
   numSerie: string;
   issuedAt: Date;
   tableLabel: string;
@@ -81,15 +97,29 @@ export interface ReceiptInput {
   qrUrl: string | null;
 }
 
-function businessBlocks(b: BusinessHeader | null): Block[] {
-  if (!b) return [];
+const centered = (text: string): Block[] =>
+  text
+    .split("\n")
+    .filter(Boolean)
+    .map((line): Block => ({ t: "text", text: line, align: "center" }));
+
+function headerBlocks({ business: b, design }: TicketHeader): Block[] {
+  const logo = design.logo;
+  // Sin logo el nombre comercial se muestra siempre: el ticket tiene que decir de quién es
+  const showName = design.showTradeName || !logo;
   return [
-    { t: "text", text: b.name, align: "center", bold: true, large: true },
-    ...(b.legalName && b.legalName !== b.name ? [{ t: "text", text: b.legalName, align: "center" } as Block] : []),
-    { t: "text", text: `NIF ${b.nif}`, align: "center" },
-    ...(b.address ? [{ t: "text", text: b.address, align: "center" } as Block] : []),
+    ...(logo ? [{ t: "image", logo } as Block, { t: "feed" } as Block] : []),
+    ...(b && showName ? [{ t: "text", text: b.name, align: "center", bold: true, large: true } as Block] : []),
+    // Razón social y NIF son obligatorios en la factura: no se pueden ocultar
+    ...(b && b.legalName && (b.legalName !== b.name || !showName) ? centered(b.legalName) : []),
+    ...(b ? centered(`NIF ${b.nif}`) : []),
+    ...(b?.address ? centered(b.address) : []),
+    ...centered(design.headerText),
   ];
 }
+
+const footerBlocks = (design: TicketDesign): Block[] =>
+  design.footer ? [{ t: "feed" }, ...centered(design.footer)] : [];
 
 export function receipt(input: ReceiptInput): PrintDocument {
   // El QR tributario va al principio de la factura, con «QR tributario:»
@@ -108,14 +138,16 @@ export function receipt(input: ReceiptInput): PrintDocument {
     0,
   );
 
+  const who = [input.design.showTable && input.tableLabel, input.design.showWaiter && input.waiterName].filter(Boolean);
+
   return {
     blocks: [
       ...qr,
-      ...businessBlocks(input.business),
+      ...headerBlocks(input),
       { t: "rule" },
       { t: "text", text: "FACTURA SIMPLIFICADA", bold: true },
       { t: "row", left: `Nº ${input.numSerie}`, right: dateTime(input.issuedAt) },
-      { t: "text", text: `${input.tableLabel} · ${input.waiterName}` },
+      ...(who.length ? [{ t: "text", text: who.join(" · ") } as Block] : []),
       { t: "rule" },
       ...input.lines.map((l): Block => ({ t: "row", left: `${l.qty} x ${l.name}`, right: euros(l.totalCents) })),
       { t: "rule" },
@@ -130,8 +162,7 @@ export function receipt(input: ReceiptInput): PrintDocument {
       { t: "rule" },
       ...input.payments.map((p): Block => ({ t: "row", left: paymentLabel(p.method), right: euros(p.amountCents) })),
       ...(change > 0 ? [{ t: "row", left: "Cambio", right: euros(change) } as Block] : []),
-      { t: "feed" },
-      ...(input.business?.ticketFooter ? [{ t: "text", text: input.business.ticketFooter, align: "center" } as Block] : []),
+      ...footerBlocks(input.design),
       { t: "feed", lines: 2 },
     ],
   };
@@ -139,8 +170,7 @@ export function receipt(input: ReceiptInput): PrintDocument {
 
 // ---------- Cuenta (antes de cobrar) ----------
 
-export interface BillInput {
-  business: BusinessHeader | null;
+export interface BillInput extends TicketHeader {
   tableLabel: string;
   at: Date;
   lines: { qty: number; name: string; totalCents: number }[];
@@ -151,11 +181,11 @@ export interface BillInput {
 export function bill(input: BillInput): PrintDocument {
   return {
     blocks: [
-      ...businessBlocks(input.business),
+      ...headerBlocks(input),
       { t: "rule" },
       { t: "text", text: "CUENTA", align: "center", bold: true, large: true },
       { t: "text", text: "Documento no válido como factura", align: "center" },
-      { t: "row", left: input.tableLabel, right: dateTime(input.at) },
+      { t: "row", left: input.design.showTable ? input.tableLabel : "", right: dateTime(input.at) },
       { t: "rule" },
       ...input.lines.map((l): Block => ({ t: "row", left: `${l.qty} x ${l.name}`, right: euros(l.totalCents) })),
       { t: "rule" },
@@ -167,6 +197,45 @@ export function bill(input: BillInput): PrintDocument {
           ]
         : []),
       { t: "feed", lines: 2 },
+    ],
+  };
+}
+
+/**
+ * Ticket de ejemplo con el diseño actual, para que el restaurante vea en
+ * papel cómo queda (se lanza desde el portal). No es una factura.
+ */
+export function sampleReceipt(header: TicketHeader, verifactu: boolean): PrintDocument {
+  const doc = receipt({
+    ...header,
+    numSerie: "PRUEBA",
+    issuedAt: new Date(),
+    tableLabel: "Terraza · Mesa 4",
+    waiterName: "Ana",
+    lines: [
+      { qty: 2, name: "Caña", totalCents: 440 },
+      { qty: 1, name: "Patatas bravas", totalCents: 650 },
+      { qty: 1, name: "Tarta de queso", totalCents: 450 },
+    ],
+    breakdown: [{ rate: 10, baseCents: 1400, quotaCents: 140 }],
+    totalCents: 1540,
+    payments: [{ method: "CASH", amountCents: 1540, tenderedCents: 2000 }],
+    qrUrl: null,
+  });
+  return {
+    blocks: [
+      { t: "text", text: "*** TICKET DE PRUEBA ***", align: "center", bold: true },
+      { t: "text", text: "Sin validez fiscal", align: "center" },
+      { t: "feed" },
+      // Hueco que ocupará el QR tributario en los tickets reales
+      ...(verifactu
+        ? ([
+            { t: "text", text: "[ aquí irá el QR tributario ]", align: "center" },
+            { t: "text", text: "VERI*FACTU", align: "center", bold: true },
+            { t: "feed" },
+          ] as Block[])
+        : []),
+      ...doc.blocks,
     ],
   };
 }

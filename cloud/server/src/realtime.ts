@@ -77,3 +77,36 @@ export function emitToDevices(tenantId: string, event: string, payload: unknown 
 export function disconnectDevice(deviceId: string) {
   deviceNs?.in(`d:${deviceId}`).disconnectSockets(true);
 }
+
+/**
+ * Pide algo a cada TPV conectado del restaurante y espera su respuesta. Los
+ * que no contesten a tiempo aparecen con un error, no bloquean al resto.
+ */
+export async function requestFromDevices<T extends object>(
+  tenantId: string,
+  event: string,
+  payload: unknown,
+  timeoutMs: number,
+): Promise<(T | { ok: false; error: string })[]> {
+  if (!deviceNs) return [];
+  const sockets = await deviceNs.in(`t:${tenantId}`).fetchSockets();
+  const names = new Map(
+    (
+      await prisma.device.findMany({
+        where: { id: { in: sockets.map((s) => String(s.data.deviceId)) } },
+        select: { id: true, name: true },
+      })
+    ).map((d) => [d.id, d.name]),
+  );
+  return Promise.all(
+    sockets.map(async (s) => {
+      const deviceName = names.get(String(s.data.deviceId)) ?? "TPV";
+      try {
+        const answer = (await s.timeout(timeoutMs).emitWithAck(event, payload)) as T;
+        return { ...answer, deviceName };
+      } catch {
+        return { ok: false as const, deviceName, error: "El TPV no ha respondido a tiempo" };
+      }
+    }),
+  );
+}

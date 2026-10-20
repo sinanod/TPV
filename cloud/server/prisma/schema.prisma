@@ -53,6 +53,21 @@ model TenantSettings {
   receiptPrinterId String?
   receiptPrinter   Printer? @relation("ReceiptPrinter", fields: [receiptPrinterId], references: [id], onDelete: SetNull)
 
+  // Diseño del ticket (los datos legales no son configurables)
+  ticketShowTradeName Boolean @default(true)
+  ticketHeaderText    String  @default("")
+  ticketShowTable     Boolean @default(true)
+  ticketShowWaiter    Boolean @default(true)
+  // Logo saneado: PNG RGB sin transparencia, como mucho 576×320 px
+  ticketLogo          Bytes?
+  ticketLogoHash      String?
+  ticketLogoWidth     Int?
+  ticketLogoHeight    Int?
+  // Ancho impreso, en % del ancho útil del papel
+  ticketLogoSize      Int     @default(60)
+  // "THRESHOLD" (blanco y negro: logos planos) | "DITHER" (tramado: fotos, degradados)
+  ticketLogoStyle     String  @default("THRESHOLD")
+
   verifactuEnabled     Boolean   @default(false)
   // "TEST" (portal de pruebas externas de la AEAT) | "PRODUCTION"
   verifactuEnvironment String    @default("TEST")
