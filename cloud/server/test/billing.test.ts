@@ -452,7 +452,9 @@ describe("pago del cliente desde el móvil", () => {
     await request(app).post(`/api/public/payments/${pay.body.paymentId}/demo/confirm`).expect(409);
 
     pending = await request(app).get("/api/sync/online-payments").set("Authorization", `Bearer ${device}`);
-    expect(pending.body).toEqual([{ id: pay.body.paymentId, orderLocalUuid: orderUuid, amountCents: 650, email: "cliente@example.com" }]);
+    expect(pending.body).toEqual([
+      { id: pay.body.paymentId, orderLocalUuid: orderUuid, amountCents: 650, email: "cliente@example.com", items: null },
+    ]);
     // Mientras el TPV no lo registra, el pendiente ya lo descuenta (evita cobrar dos veces)
     expect((await request(app).get(`/api/public/tables/${tableToken}`)).body.bill.pendingCents).toBe(1300);
 

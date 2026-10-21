@@ -5,7 +5,16 @@ export type TableView = {
   table: string;
   onlinePayments: { enabled: boolean; demo: boolean };
   bill: {
-    lines: { name: string; qty: number; totalCents: number }[];
+    lines: {
+      /** null si el TPV no permite elegir esa línea */
+      lineId: number | null;
+      name: string;
+      qty: number;
+      unitCents: number;
+      totalCents: number;
+      /** Unidades que aún se pueden elegir para pagar */
+      availableQty: number;
+    }[];
     totalCents: number;
     paidCents: number;
     pendingCents: number;
@@ -57,11 +66,13 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 
 export const publicApi = {
   table: (token: string) => call<TableView>(`/tables/${encodeURIComponent(token)}`),
-  pay: (token: string, amountCents: number, email: string) =>
-    call<{ paymentId: string; redirectUrl: string }>(`/tables/${encodeURIComponent(token)}/payments`, "POST", {
-      amountCents,
-      ...(email ? { email } : {}),
-    }),
+  /** Un importe, o los artículos elegidos (entonces el importe lo calcula el servidor) */
+  pay: (token: string, what: { amountCents: number } | { items: { lineId: number; qty: number }[] }, email: string) =>
+    call<{ paymentId: string; amountCents: number; redirectUrl: string }>(
+      `/tables/${encodeURIComponent(token)}/payments`,
+      "POST",
+      { ...what, ...(email ? { email } : {}) },
+    ),
   payment: (id: string) => call<PaymentView>(`/payments/${encodeURIComponent(id)}`),
   demoConfirm: (id: string) => call(`/payments/${encodeURIComponent(id)}/demo/confirm`, "POST"),
   demoCancel: (id: string) => call(`/payments/${encodeURIComponent(id)}/demo/cancel`, "POST"),

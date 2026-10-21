@@ -24,6 +24,18 @@ export function orderTotals(order: {
   return { totalCents, paidCents, pendingCents: totalCents - paidCents };
 }
 
+/** Unidades ya pagadas de cada línea en cobros por artículos. */
+export function paidQtyByLine(payments: { items?: { orderLineId: number; qty: number }[] }[]) {
+  const paid = new Map<number, number>();
+  for (const p of payments) for (const i of p.items ?? []) paid.set(i.orderLineId, (paid.get(i.orderLineId) ?? 0) + i.qty);
+  return paid;
+}
+
+export interface PaymentItemInput {
+  lineId: number;
+  qty: number;
+}
+
 // Cobros y facturas de una en una: la serie de numeración y la cadena de
 // huellas VERI*FACTU no admiten dos registros con el mismo "anterior".
 let queue: Promise<unknown> = Promise.resolve();
@@ -125,6 +137,12 @@ export interface PaymentInput {
   email?: string | null;
   waiterId?: number | null;
   onlinePaymentId?: string;
+  /**
+   * Cobro por artículos: el importe es lo que valen (o lo pendiente, si es
+   * menos). En un pago online el importe es el que pagó el cliente y los
+   * artículos que ya se hayan cobrado por otro lado se ignoran.
+   */
+  items?: PaymentItemInput[];
 }
 
 export interface PaymentResult {
@@ -158,7 +176,10 @@ export function registerPayment(orderId: number, input: PaymentInput): Promise<P
           }
         }
 
-        const order = await tx.order.findUnique({ where: { id: orderId }, include: { lines: true, payments: true } });
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { lines: true, payments: { include: { items: true } } },
+        });
         if (!order) throw new HttpError(404, "Comanda no encontrada");
         const { totalCents, pendingCents } = orderTotals(order);
         const isOpen = OPEN_STATUSES.includes(order.status);
@@ -179,7 +200,38 @@ export function registerPayment(orderId: number, input: PaymentInput): Promise<P
           return { orderId, tableId: order.tableId, paymentId: payment.id, changeCents: 0, refundCents, invoiceId: null, duplicate: false };
         }
 
-        let amountCents = input.amountCents ?? pendingCents;
+        // Artículos elegidos: se comprueba que sean de esta cuenta y que queden sin pagar
+        const items: PaymentItemInput[] = [];
+        let itemsCents = 0;
+        if (input.items) {
+          const paid = paidQtyByLine(order.payments);
+          const lines = new Map(order.lines.map((l) => [l.id, l]));
+          const wanted = new Map<number, number>();
+          for (const i of input.items) {
+            if (!Number.isInteger(i.qty) || i.qty <= 0) throw new HttpError(400, "Cantidad de artículos no válida");
+            if (!lines.has(i.lineId)) throw new HttpError(400, "Ese artículo no es de esta cuenta");
+            wanted.set(i.lineId, (wanted.get(i.lineId) ?? 0) + i.qty);
+          }
+          for (const [lineId, qty] of wanted) {
+            const line = lines.get(lineId)!;
+            const available = line.qty - (paid.get(lineId) ?? 0);
+            const take = input.method === "ONLINE" ? Math.min(qty, available) : qty;
+            if (take > available) {
+              throw new HttpError(409, available > 0 ? `Solo quedan ${available} sin pagar de ese artículo` : "Ese artículo ya está pagado");
+            }
+            if (take > 0) {
+              items.push({ lineId, qty: take });
+              itemsCents += toCents(line.unitPrice) * take;
+            }
+          }
+          if (!items.length && input.method !== "ONLINE") throw new HttpError(400, "Elige al menos un artículo");
+        }
+
+        let amountCents =
+          input.items && input.method !== "ONLINE"
+            ? // Si antes se cobró algo por importe, lo pendiente puede ser menos que lo que valen
+              Math.min(itemsCents, pendingCents)
+            : (input.amountCents ?? pendingCents);
         if (!Number.isInteger(amountCents) || amountCents <= 0) throw new HttpError(400, "El importe debe ser mayor que cero");
 
         let changeCents = 0;
@@ -212,6 +264,7 @@ export function registerPayment(orderId: number, input: PaymentInput): Promise<P
             amount: amountCents / 100,
             tendered: tenderedCents === null ? null : tenderedCents / 100,
             refundAmount: refundCents / 100,
+            items: { create: items.map((i) => ({ orderLineId: i.lineId, qty: i.qty })) },
           },
         });
         const invoice = isFinalPayment ? await issueInvoice(tx, orderId) : null;

@@ -157,7 +157,7 @@ class OrderViewModel(private val container: AppContainer, private val tableId: I
             } else {
                 _state.value = _state.value.copy(
                     order = result.order,
-                    notice = "Cobrado ${euros(request.amount ?: 0.0)} · Pendiente ${euros(result.order.pending)}$change",
+                    notice = "Cobrado ${euros(result.order.payments.lastOrNull()?.amount ?: 0.0)} · Pendiente ${euros(result.order.pending)}$change",
                 )
                 onResult(result.order)
             }

@@ -35,27 +35,51 @@ async function tableByToken(token: string) {
   return table;
 }
 
-/** Cuenta abierta de la mesa con lo pendiente, descontando pagos online aún no registrados por el TPV. */
+type PaidItem = { lineId: number; qty: number };
+const asItems = (json: unknown): PaidItem[] => (Array.isArray(json) ? (json as PaidItem[]) : []);
+
+/**
+ * Cuenta abierta de la mesa con lo pendiente, descontando pagos online aún no
+ * registrados por el TPV (también sus artículos, para no ofrecerlos dos veces).
+ */
 async function openBill(tableId: string) {
   const order = await prisma.order.findFirst({
     where: { tableId, status: { in: OPEN_STATUSES } },
     orderBy: { openedAt: "desc" },
-    include: { lines: true, payments: true },
+    include: { lines: { orderBy: { localId: "asc" } }, payments: true },
   });
   if (!order) return null;
-  const inFlight = await prisma.onlinePayment.aggregate({
+  const inFlight = await prisma.onlinePayment.findMany({
     where: { orderLocalUuid: order.localUuid, status: "SUCCEEDED", appliedAt: null },
-    _sum: { amountCents: true },
+    select: { amountCents: true, items: true },
   });
+  const inFlightQty = new Map<number, number>();
+  for (const p of inFlight) for (const i of asItems(p.items)) inFlightQty.set(i.lineId, (inFlightQty.get(i.lineId) ?? 0) + i.qty);
+
   const totalCents = Math.round(order.total * 100);
-  const paidCents = order.payments.reduce((s, p) => s + p.amountCents, 0) + (inFlight._sum.amountCents ?? 0);
+  const paidCents =
+    order.payments.reduce((s, p) => s + p.amountCents, 0) + inFlight.reduce((s, p) => s + p.amountCents, 0);
+  const pendingCents = Math.max(totalCents - paidCents, 0);
   return {
     order,
     view: {
-      lines: order.lines.map((l) => ({ name: l.productName, qty: l.qty, totalCents: Math.round(l.qty * l.unitPrice * 100) })),
+      lines: order.lines.map((l) => {
+        const unitCents = Math.round(l.unitPrice * 100);
+        const paidQty = Math.min(l.qty, l.paidQty + (l.localId !== null ? (inFlightQty.get(l.localId) ?? 0) : 0));
+        return {
+          // Sin id (TPV antiguo) la línea no se puede elegir por separado
+          lineId: l.localId,
+          name: l.productName,
+          qty: l.qty,
+          unitCents,
+          totalCents: Math.round(l.qty * l.unitPrice * 100),
+          // Con la cuenta ya pagada del todo no queda nada por elegir
+          availableQty: pendingCents > 0 ? l.qty - paidQty : 0,
+        };
+      }),
       totalCents,
       paidCents,
-      pendingCents: Math.max(totalCents - paidCents, 0),
+      pendingCents,
     },
   };
 }
@@ -90,15 +114,24 @@ publicRouter.get(
   }),
 );
 
-const paySchema = z.object({
-  amountCents: z.number().int().positive(),
-  email: z.string().trim().email().optional().or(z.literal("")),
-});
+const paySchema = z
+  .object({
+    amountCents: z.number().int().positive().optional(),
+    /** Pagar artículos concretos: el importe lo calcula el servidor */
+    items: z
+      .array(z.object({ lineId: z.number().int(), qty: z.number().int().positive() }))
+      .min(1)
+      .max(100)
+      .optional(),
+    email: z.string().trim().email().optional().or(z.literal("")),
+  })
+  .refine((d) => d.amountCents !== undefined || d.items !== undefined, "Indica el importe o los artículos");
 
 publicRouter.post(
   "/tables/:token/payments",
   h(async (req, res) => {
-    const { amountCents, email } = paySchema.parse(req.body);
+    const body = paySchema.parse(req.body);
+    const { email } = body;
     const table = await tableByToken(req.params.token);
     const provider = getPaymentProvider();
     if (!table.tenant.settings?.onlinePaymentsEnabled || !provider) {
@@ -106,7 +139,30 @@ publicRouter.post(
     }
     const bill = await openBill(table.id);
     if (!bill || bill.view.pendingCents <= 0) throw new HttpError(409, "No hay nada pendiente de pagar en esta mesa");
-    if (amountCents > bill.view.pendingCents) throw new HttpError(400, "El importe supera lo pendiente de la cuenta");
+
+    let amountCents = body.amountCents ?? 0;
+    let items: PaidItem[] | null = null;
+    if (body.items) {
+      const lines = new Map(bill.view.lines.filter((l) => l.lineId !== null).map((l) => [l.lineId!, l]));
+      const wanted = new Map<number, number>();
+      for (const i of body.items) wanted.set(i.lineId, (wanted.get(i.lineId) ?? 0) + i.qty);
+      items = [];
+      let itemsCents = 0;
+      for (const [lineId, qty] of wanted) {
+        const line = lines.get(lineId);
+        if (!line) throw new HttpError(400, "Ese artículo no está en la cuenta");
+        if (qty > line.availableQty) {
+          throw new HttpError(409, `«${line.name}» ya está pagado (o alguien lo está pagando): recarga la cuenta`);
+        }
+        items.push({ lineId, qty });
+        itemsCents += line.unitCents * qty;
+      }
+      // Si antes se pagó una parte por importe, lo pendiente puede ser menos
+      amountCents = Math.min(itemsCents, bill.view.pendingCents);
+      if (amountCents <= 0) throw new HttpError(400, "Esos artículos no tienen importe que pagar");
+    } else if (amountCents > bill.view.pendingCents) {
+      throw new HttpError(400, "El importe supera lo pendiente de la cuenta");
+    }
 
     const payment = await prisma.onlinePayment.create({
       data: {
@@ -114,6 +170,7 @@ publicRouter.post(
         tableId: table.id,
         orderLocalUuid: bill.order.localUuid,
         amountCents,
+        items: items ?? undefined,
         email: email ? email.toLowerCase() : null,
         provider: provider.name,
       },
@@ -128,7 +185,7 @@ publicRouter.post(
     if (checkout.providerRef) {
       await prisma.onlinePayment.update({ where: { id: payment.id }, data: { providerRef: checkout.providerRef } });
     }
-    res.status(201).json({ paymentId: payment.id, redirectUrl: checkout.redirectUrl });
+    res.status(201).json({ paymentId: payment.id, amountCents, redirectUrl: checkout.redirectUrl });
   }),
 );
 

@@ -47,6 +47,8 @@ data class OrderLine(
     val note: String?,
     val status: String,
     val product: Product,
+    /** Unidades ya pagadas eligiendo artículos */
+    val paidQty: Int = 0,
 )
 
 data class Payment(
@@ -57,7 +59,11 @@ data class Payment(
     val tendered: Double?,
     val email: String?,
     val refundAmount: Double,
+    /** Artículos que pagó, si se cobró eligiendo artículos */
+    val items: List<PaidItem>? = null,
 )
+
+data class PaidItem(val orderLineId: Int, val qty: Int)
 
 data class InvoiceRef(val id: Int, val uuid: String, val numSerie: String)
 
@@ -96,7 +102,11 @@ data class PaymentRequest(
     val tendered: Double?,
     /** Si se indica, la nube le envía el ticket por correo al cerrar la cuenta */
     val email: String?,
+    /** Cobro por artículos: el servidor calcula el importe (amount se ignora) */
+    val items: List<ItemRequest>? = null,
 )
+
+data class ItemRequest(val lineId: Int, val qty: Int)
 
 data class PaymentResponse(
     val order: Order,

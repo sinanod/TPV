@@ -145,6 +145,8 @@ interface PendingOnlinePayment {
   orderLocalUuid: string;
   amountCents: number;
   email: string | null;
+  /** Artículos que eligió el cliente (ids de línea locales) */
+  items?: { lineId: number; qty: number }[] | null;
 }
 
 async function applyOnlinePayments() {
@@ -172,6 +174,7 @@ async function applyOnlinePayments() {
         amountCents: p.amountCents,
         email: p.email,
         onlinePaymentId: p.id,
+        items: p.items?.length ? p.items : undefined,
       });
       if (!result.duplicate) await publishPayment(result);
       const payment = await prisma.payment.findUniqueOrThrow({ where: { id: result.paymentId } });

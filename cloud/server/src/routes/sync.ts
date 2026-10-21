@@ -83,6 +83,7 @@ const paymentSchema = z.object({
   refundCents: z.number().int().min(0).default(0),
   onlinePaymentId: z.string().nullable(),
   createdAt: z.coerce.date(),
+  items: z.array(z.object({ lineId: z.number().int(), qty: z.number().int().positive() })).max(500).default([]),
 });
 
 const tableStatusEvent = z.object({
@@ -110,6 +111,9 @@ const orderUpsertEvent = z.object({
     payments: z.array(paymentSchema).default([]),
     lines: z.array(
       z.object({
+        // Opcionales: los TPV de versiones anteriores no los envían
+        localId: z.number().int().optional(),
+        paidQty: z.number().int().min(0).default(0),
         productId: z.string().nullable(),
         productName: z.string(),
         qty: z.number().int(),
@@ -253,8 +257,11 @@ async function applyEvent(tenantId: string, deviceId: string, event: SyncEvent) 
     refundCents: p.refundCents,
     onlinePaymentId: p.onlinePaymentId,
     createdAt: p.createdAt,
+    items: p.items.length ? p.items : undefined,
   }));
   const lines = d.lines.map((l) => ({
+    localId: l.localId ?? null,
+    paidQty: l.paidQty,
     productId: l.productId,
     productName: l.productName,
     qty: l.qty,
@@ -333,7 +340,13 @@ syncRouter.get(
       orderBy: { paidAt: "asc" },
     });
     res.json(
-      pending.map((p) => ({ id: p.id, orderLocalUuid: p.orderLocalUuid, amountCents: p.amountCents, email: p.email })),
+      pending.map((p) => ({
+        id: p.id,
+        orderLocalUuid: p.orderLocalUuid,
+        amountCents: p.amountCents,
+        email: p.email,
+        items: p.items ?? null,
+      })),
     );
   }),
 );

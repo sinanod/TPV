@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,8 +43,8 @@ private fun share(pending: Double, ways: Int): Double = ceil(pending / ways * 10
 /**
  * Cobro de la mesa: total o por partes (importe libre o a partes iguales),
  * en efectivo con cálculo del cambio o con tarjeta, y opcionalmente con el
- * email del cliente para que le llegue el ticket. El último pago cierra la
- * cuenta y emite la factura.
+ * email del cliente para que le llegue el ticket. También eligiendo qué
+ * artículos paga cada uno. El último pago cierra la cuenta y emite la factura.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,8 +61,15 @@ fun PaymentDialog(
     var tendered by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
+    var byItems by remember { mutableStateOf(false) }
+    val selected = remember { mutableStateMapOf<String, Int>() }
 
-    val amountValue = parseEuros(amount)
+    val groups = remember(order.lines) { groupLines(order.lines) }
+    val itemsCents = selectionCents(groups, selected)
+    // Si antes se cobró algo por importe, lo pendiente puede ser menos que lo que valen
+    val itemsAmount = minOf(itemsCents, Math.round(order.pending * 100).toInt()) / 100.0
+
+    val amountValue = if (byItems) itemsAmount else parseEuros(amount)
     val tenderedValue = parseEuros(tendered)
     val change = if (method == "CASH" && amountValue != null && tenderedValue != null && tenderedValue > amountValue) {
         tenderedValue - amountValue
@@ -77,6 +85,7 @@ fun PaymentDialog(
 
     fun submit() {
         localError = when {
+            byItems && itemsCents == 0 -> "Elige qué artículos se pagan"
             amountValue == null || amountValue <= 0 -> "Indica un importe mayor que cero"
             amountValue > order.pending + 0.005 -> "Lo pendiente es ${euros(order.pending)}"
             method == "CASH" && tenderedValue != null && tenderedValue < amountValue -> "El efectivo entregado no cubre el importe"
@@ -86,11 +95,13 @@ fun PaymentDialog(
         if (localError != null || amountValue == null) return
         val request = PaymentRequest(
             method = method,
-            amount = amountValue,
+            amount = if (byItems) null else amountValue,
             tendered = if (method == "CASH") tenderedValue else null,
             email = email.trim().ifBlank { null },
+            items = if (byItems) toItems(groups, selected) else null,
         )
         onPay(request) { updated ->
+            selected.clear()
             // Al dividir, la siguiente parte se calcula con los que quedan por pagar
             val remainingWays = (splitWays.toIntOrNull() ?: 0) - 1
             if (remainingWays > 1) {
@@ -116,7 +127,9 @@ fun PaymentDialog(
 
                 order.payments.filter { it.amount > 0 }.forEach { p ->
                     Text(
-                        "${METHOD_LABEL[p.method] ?: p.method} · ${euros(p.amount)}${p.email?.let { " · $it" } ?: ""}",
+                        "${METHOD_LABEL[p.method] ?: p.method} · ${euros(p.amount)}" +
+                            (p.items?.takeIf { it.isNotEmpty() }?.let { " · ${it.sumOf { i -> i.qty }} artículo(s)" } ?: "") +
+                            (p.email?.let { " · $it" } ?: ""),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -132,22 +145,55 @@ fun PaymentDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("Importe de este pago") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = splitWays,
-                    onValueChange = ::split,
-                    label = { Text("Dividir entre (nº de personas)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Row(modifier = Modifier.padding(bottom = 4.dp)) {
+                    FilterChip(
+                        selected = !byItems,
+                        onClick = { byItems = false },
+                        label = { Text("Importe") },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    FilterChip(
+                        selected = byItems,
+                        onClick = { byItems = true },
+                        enabled = groups.isNotEmpty(),
+                        label = { Text("Por artículos") },
+                    )
+                }
+
+                if (byItems) {
+                    ItemPicker(
+                        groups = groups,
+                        selected = selected,
+                        onChange = { key, qty -> selected[key] = qty.coerceAtLeast(0) },
+                        onSelectAll = { all ->
+                            selected.clear()
+                            if (all) groups.forEach { selected[it.key] = it.available }
+                        },
+                    )
+                    Text(
+                        "Importe: ${euros(itemsAmount)}" +
+                            if (itemsCents / 100.0 > itemsAmount) " (solo queda eso por pagar)" else "",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it },
+                        label = { Text("Importe de este pago") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = splitWays,
+                        onValueChange = ::split,
+                        label = { Text("Dividir entre (nº de personas)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 if (method == "CASH") {
                     OutlinedTextField(
                         value = tendered,

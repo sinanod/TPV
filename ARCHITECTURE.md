@@ -87,7 +87,8 @@ Eventos:
 - `table.status` → `{ tableId (id de la nube), status }`
 - `order.upsert` → `{ localUuid, tableId, tableLabel, waiterName, status,
   paymentMethod, total, openedAt, closedAt, lines[], payments[],
-  invoiceNumber }`. `tableLabel` y los nombres de producto van copiados para
+  invoiceNumber }`. Cada línea lleva su id local y las unidades pagadas por
+  artículos (`localId`, `paidQty`), y cada pago sus `items`. `tableLabel` y los nombres de producto van copiados para
   que el informe de ventas no cambie si luego se renombra o borra algo en la
   carta.
 - `invoice.issued` → la factura con su registro de alta VERI*FACTU ya
@@ -139,12 +140,13 @@ la impresora de tickets elegida en el portal.
 
 Una mesa se puede cobrar de una vez o por partes:
 
-- **En el TPV o en Android**: importe libre o «dividir entre N» (el reparto
-  se recalcula tras cada pago), efectivo con cálculo del cambio o tarjeta,
-  y opcionalmente el email del cliente.
+- **En el TPV o en Android**: importe libre, «dividir entre N» (el reparto
+  se recalcula tras cada pago) o **por artículos** (cada uno paga lo que ha
+  tomado), efectivo con cálculo del cambio o tarjeta, y opcionalmente el
+  email del cliente.
 - **Desde el móvil del cliente**: cada mesa tiene un QR (se imprimen desde
   el portal) que abre `/m/<token>` en el portal. El cliente ve la cuenta,
-  paga todo o una parte y deja su email. La nube avisa al TPV
+  paga todo, una parte o solo lo suyo eligiendo artículos, y deja su email. La nube avisa al TPV
   (`payments:pending` por socket, y además lo consulta cada minuto), que lo
   registra como un pago `ONLINE` de esa comanda.
 
@@ -154,7 +156,18 @@ Reglas:
 
 - No se puede cobrar con tarjeta más de lo pendiente; con efectivo sí (es el
   cambio).
-- No se pueden quitar líneas por debajo de lo ya cobrado.
+- No se pueden quitar líneas por debajo de lo ya cobrado, ni las que tienen
+  unidades pagadas por artículos.
+- **Cobro por artículos**: el importe lo calcula el servidor (TPV o nube)
+  con lo que valen las unidades elegidas, nunca el cliente. Cada pago guarda
+  sus artículos (`PaymentItem`) y cada línea sabe cuántas unidades le quedan
+  sin pagar, así no se ofrecen dos veces. Las líneas iguales (mismo producto,
+  precio y nota) se muestran juntas aunque se pidieran en rondas distintas.
+  Si antes se cobró una parte por importe, los artículos cuestan como mucho
+  lo que queda pendiente. Un pago móvil por artículos que llega cuando el
+  camarero ya ha cobrado alguno de ellos se aplica igual como importe (y lo
+  que sobre, para devolver). Mientras el TPV no registra un pago móvil, la
+  nube ya descuenta sus artículos de lo que ofrece a otros comensales.
 - Una factura simplificada no puede superar 3.000 € (IVA incluido); por
   encima el TPV pide hacer factura completa (no implementada todavía).
 - Si un pago móvil llega cuando la cuenta ya estaba cobrada en el TPV, se
@@ -265,9 +278,11 @@ Los tokens de portal y de dispositivo no son intercambiables.
 - `POST /api/orders/:id/lines`, `DELETE /api/orders/:id/lines/:lineId`
 - `POST /api/orders/:id/send` → la comanda + `prints[]` (resultado por
   impresora)
-- `POST /api/orders/:id/payments { method: CASH|CARD, amount?, tendered?,
-  email? }` → `{ order, change, invoice, receiptPrint }`. Sin `amount`, cobra
-  todo lo pendiente.
+- `POST /api/orders/:id/payments { method: CASH|CARD, amount? | items?,
+  tendered?, email? }` → `{ order, change, invoice, receiptPrint }`. Sin
+  `amount` ni `items`, cobra todo lo pendiente. `items: [{ lineId, qty }]`
+  cobra esos artículos (el servidor calcula el importe). Las líneas de la
+  comanda llevan `paidQty`.
 - `POST /api/orders/:id/close { paymentMethod, email? }` → cobra todo lo
   pendiente de una vez, o libera la mesa si no tiene consumiciones
 - `POST /api/orders/:id/print-bill` → cuenta previa

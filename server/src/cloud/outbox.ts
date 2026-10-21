@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { paidQtyByLine } from "../billing";
 
 const OPEN_STATUSES = ["OPEN", "SENT", "SERVED"];
 const toCents = (n: number) => Math.round(n * 100);
@@ -19,6 +20,7 @@ export async function enqueueTable(tableId: number) {
 }
 
 function paymentPayload(p: {
+  items?: { orderLineId: number; qty: number }[];
   uuid: string;
   method: string;
   amount: number;
@@ -35,6 +37,7 @@ function paymentPayload(p: {
     refundCents: toCents(p.refundAmount),
     onlinePaymentId: p.onlinePaymentId,
     createdAt: p.createdAt.toISOString(),
+    items: (p.items ?? []).map((i) => ({ lineId: i.orderLineId, qty: i.qty })),
   };
 }
 
@@ -45,11 +48,12 @@ export async function enqueueOrder(orderId: number) {
       table: { include: { zone: true } },
       waiter: true,
       lines: { include: { product: true }, orderBy: { createdAt: "asc" } },
-      payments: { orderBy: { createdAt: "asc" } },
+      payments: { orderBy: { createdAt: "asc" }, include: { items: true } },
       invoice: true,
     },
   });
   if (!order) return false;
+  const paidQty = paidQtyByLine(order.payments);
 
   await enqueue(`order:${order.uuid}`, "order.upsert", {
     localUuid: order.uuid,
@@ -63,6 +67,9 @@ export async function enqueueOrder(orderId: number) {
     closedAt: order.closedAt?.toISOString() ?? null,
     invoiceNumber: order.invoice?.numSerie ?? null,
     lines: order.lines.map((l) => ({
+      // Para que el cliente pueda elegir qué paga desde el QR de la mesa
+      localId: l.id,
+      paidQty: paidQty.get(l.id) ?? 0,
       productId: l.product.cloudId,
       productName: l.product.name,
       qty: l.qty,

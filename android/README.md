@@ -1,8 +1,9 @@
 # TPV Comandas (Android)
 
 App nativa para camareros: login por PIN, mapa de mesas en tiempo real, envío
-de comandas (cada familia sale por su impresora) y cobro de la mesa, entero o
-por partes, en efectivo o con tarjeta, con email del cliente para el ticket. Kotlin + Jetpack Compose + Retrofit + Socket.IO.
+de comandas (cada familia sale por su impresora) y cobro de la mesa, entero,
+por partes o eligiendo artículos, en efectivo o con tarjeta, con email del
+cliente para el ticket. Kotlin + Jetpack Compose + Retrofit + Socket.IO.
 Contrato de API/eventos: ver `../ARCHITECTURE.md`.
 
 ## Estructura
@@ -21,7 +22,7 @@ app/src/main/java/com/tpv/comandas/
   ui/
     login/    LoginScreen + LoginViewModel
     tables/   TablesScreen (mapa de mesas) + TablesViewModel
-    order/    OrderScreen (comanda) + OrderViewModel + PaymentDialog (cobro)
+    order/    OrderScreen (comanda) + OrderViewModel + PaymentDialog (cobro) + ItemPicker
     theme/    colores y tema oscuro (a juego con el panel web)
 ```
 

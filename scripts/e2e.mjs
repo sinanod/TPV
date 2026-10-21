@@ -242,7 +242,14 @@ try {
     return b.bill?.pendingCents > 0 ? b : null;
   }, "cuenta visible desde el móvil");
   check(bill.bill.pendingCents === 700, `el móvil ve la cuenta: ${bill.bill.pendingCents / 100} €`);
-  const pay = await api(CLOUD, "POST", `/api/public/tables/${token}/payments`, { amountCents: 700, email: "movil@ejemplo.com" });
+  // El cliente elige lo que ha tomado (la tortilla): el importe lo calcula la nube
+  const tortilla = bill.bill.lines.find((l) => l.name === "Tortilla española");
+  check(tortilla?.lineId != null && tortilla.availableQty === 1, "el móvil puede elegir los artículos de la cuenta");
+  const pay = await api(CLOUD, "POST", `/api/public/tables/${token}/payments`, {
+    items: [{ lineId: tortilla.lineId, qty: 1 }],
+    email: "movil@ejemplo.com",
+  });
+  check(pay.amountCents === 700, `importe calculado por la nube: ${pay.amountCents / 100} €`);
   await api(CLOUD, "POST", `/api/public/payments/${pay.paymentId}/demo/confirm`);
 
   const closed = await waitFor(async () => {
@@ -250,6 +257,11 @@ try {
     return r.status === 404 ? true : null;
   }, "el TPV local aplica el pago online y cierra la mesa", 20000);
   check(closed, "el TPV local registró el pago móvil y cerró la mesa");
+  const paidOrder = await api(LOCAL, "GET", `/api/orders/${order.id}`, undefined, waiter);
+  check(
+    paidOrder.lines[0].paidQty === 1 && paidOrder.payments[0].items.length === 1,
+    "el TPV registró el pago móvil con el artículo elegido",
+  );
   const invoices = await api(LOCAL, "GET", "/api/invoices", undefined, waiter);
   check(invoices.length === 2, `facturas en el TPV local: ${invoices.map((i) => i.numSerie).join(", ")}`);
   await api(LOCAL, "POST", "/api/setup/cloud/sync");

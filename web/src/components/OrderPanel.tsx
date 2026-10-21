@@ -157,9 +157,12 @@ export function OrderPanel({
               <span>
                 {line.qty}× {line.product.name}
                 {line.note ? ` (${line.note})` : ""}
+                {line.paidQty > 0 && (
+                  <small className="paid-tag">{line.paidQty >= line.qty ? " · pagado" : ` · ${line.paidQty} pagado${line.paidQty > 1 ? "s" : ""}`}</small>
+                )}
               </span>
               <span>{euros(line.qty * line.unitPrice)}</span>
-              {line.status === "PENDING" && (
+              {line.status === "PENDING" && line.paidQty === 0 && (
                 <button className="link" onClick={() => removeLine(line.id)}>
                   Quitar
                 </button>

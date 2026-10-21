@@ -47,12 +47,15 @@ export interface OrderLine {
   note: string | null;
   status: LineStatus;
   product: Product;
+  /** Unidades ya pagadas eligiendo artículos */
+  paidQty: number;
 }
 
 export type PaymentMethod = "CASH" | "CARD" | "ONLINE";
 
 export interface Payment {
   id: number;
+  items?: { orderLineId: number; qty: number }[];
   method: PaymentMethod;
   amount: number;
   tendered: number | null;

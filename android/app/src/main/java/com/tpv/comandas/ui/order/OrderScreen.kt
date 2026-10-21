@@ -132,10 +132,15 @@ private fun OrderContent(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("${line.qty}× ${line.product.name}${line.note?.let { " ($it)" } ?: ""}")
+                    val paid = when {
+                        line.paidQty <= 0 -> ""
+                        line.paidQty >= line.qty -> " · pagado"
+                        else -> " · ${line.paidQty} pagado${if (line.paidQty > 1) "s" else ""}"
+                    }
+                    Text("${line.qty}× ${line.product.name}${line.note?.let { " ($it)" } ?: ""}$paid")
                     Row {
                         Text(euros(line.qty * line.unitPrice))
-                        if (line.status == "PENDING") {
+                        if (line.status == "PENDING" && line.paidQty == 0) {
                             Text(
                                 "  Quitar",
                                 color = MaterialTheme.colorScheme.error,

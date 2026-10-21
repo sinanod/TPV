@@ -386,3 +386,58 @@ input {
   color: var(--c-muted);
   font-size: 0.8rem;
 }
+
+/* Pagar solo lo mío */
+.c-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.c-items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1.5px solid var(--c-border);
+  border-radius: 12px;
+}
+.c-items li.picked {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.c-item-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: none;
+  border: none;
+  padding: 6px 0;
+  font: inherit;
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+}
+.c-item-name small {
+  color: var(--c-muted);
+}
+.c-stepper.small {
+  gap: 10px;
+}
+.c-stepper.small button {
+  width: 40px;
+  height: 40px;
+  font-size: 1.3rem;
+}
+.c-stepper button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.c-paid-tag {
+  color: var(--c-accent);
+  font-weight: 600;
+}

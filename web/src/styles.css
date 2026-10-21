@@ -525,3 +525,96 @@ button {
 .notice-error {
   border-left-color: #b8452f;
 }
+
+/* Cobro por artículos */
+.payment-dialog .segmented + .segmented {
+  margin-top: 0.75rem;
+}
+.item-picker {
+  margin-top: 0.75rem;
+}
+.item-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #9aa4b2;
+  margin-bottom: 0.4rem;
+}
+.item-picker ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid #262d3a;
+  border-radius: 8px;
+}
+.item-picker li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #262d3a;
+}
+.item-picker li:last-child {
+  border-bottom: none;
+}
+.item-picker li.picked {
+  background: rgba(76, 139, 245, 0.12);
+}
+/* Más específico que «.modal button», que los pinta como botón principal */
+.modal .item-picker .item-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: transparent;
+  color: #eef1f5;
+  padding: 0.3rem 0;
+  border: none;
+  font-weight: 400;
+  text-align: left;
+}
+.item-picker .item-name em {
+  color: #9aa4b2;
+}
+.item-picker .hint {
+  font-size: 0.75rem;
+  color: #9aa4b2;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.modal .stepper button {
+  padding: 0;
+  background: transparent;
+  border: 1px solid #4c8bf5;
+  color: #7db3ff;
+}
+.modal .stepper button:disabled {
+  border-color: #333c4d;
+  color: #5b6577;
+}
+.stepper button {
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.stepper span {
+  min-width: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+}
+.item-total {
+  margin: 0.6rem 0 0;
+}
+.paid-tag {
+  color: #6fd08c;
+  font-weight: 600;
+}

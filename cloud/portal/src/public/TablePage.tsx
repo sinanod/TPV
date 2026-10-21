@@ -3,7 +3,22 @@ import { euros, PaymentView, publicApi, PublicError, TableView } from "./api";
 
 const REFRESH_MS = 5000;
 
-type Mode = "all" | "custom" | "split";
+type Mode = "all" | "items" | "custom" | "split";
+type BillLine = NonNullable<TableView["bill"]>["lines"][number];
+
+/** Mismas líneas juntas («3 × Caña» aunque se pidieran en rondas distintas). */
+function groupLines(lines: BillLine[]) {
+  const groups = new Map<string, { key: string; name: string; unitCents: number; available: number; lines: { lineId: number; available: number }[] }>();
+  for (const l of lines) {
+    if (l.lineId === null || l.availableQty <= 0) continue;
+    const key = `${l.name}|${l.unitCents}`;
+    const g = groups.get(key) ?? { key, name: l.name, unitCents: l.unitCents, available: 0, lines: [] };
+    g.available += l.availableQty;
+    g.lines.push({ lineId: l.lineId, available: l.availableQty });
+    groups.set(key, g);
+  }
+  return [...groups.values()];
+}
 
 function parseEuros(value: string) {
   const n = Number(value.trim().replace(",", "."));
@@ -118,7 +133,14 @@ export function TablePage({ token, paymentId: initialPaymentId }: { token: strin
               {bill.lines.map((l, i) => (
                 <li key={i}>
                   <span className="c-qty">{l.qty}×</span>
-                  <span className="c-name">{l.name}</span>
+                  <span className="c-name">
+                    {l.name}
+                    {bill.pendingCents > 0 && l.lineId !== null && l.availableQty < l.qty && (
+                      <small className="c-paid-tag">
+                        {l.availableQty === 0 ? " · pagado" : ` · ${l.qty - l.availableQty} pagado${l.qty - l.availableQty > 1 ? "s" : ""}`}
+                      </small>
+                    )}
+                  </span>
                   <span className="c-amount">{euros(l.totalCents)}</span>
                 </li>
               ))}
@@ -147,7 +169,7 @@ export function TablePage({ token, paymentId: initialPaymentId }: { token: strin
               <p className="c-muted">¡Gracias por tu visita!</p>
             </section>
           ) : view.onlinePayments.enabled ? (
-            <PayForm token={token} pendingCents={bill.pendingCents} demo={view.onlinePayments.demo} />
+            <PayForm token={token} pendingCents={bill.pendingCents} lines={bill.lines} demo={view.onlinePayments.demo} />
           ) : (
             <section className="c-card c-center">
               <h2>Pide la cuenta a tu camarero</h2>
@@ -161,8 +183,23 @@ export function TablePage({ token, paymentId: initialPaymentId }: { token: strin
   );
 }
 
-function PayForm({ token, pendingCents, demo }: { token: string; pendingCents: number; demo: boolean }) {
+function PayForm({
+  token,
+  pendingCents,
+  lines,
+  demo,
+}: {
+  token: string;
+  pendingCents: number;
+  lines: BillLine[];
+  demo: boolean;
+}) {
   const [mode, setMode] = useState<Mode>("all");
+  const [selected, setSelected] = useState<Record<string, number>>({});
+  const groups = groupLines(lines);
+  const itemsCents = groups.reduce((s, g) => s + g.unitCents * Math.min(selected[g.key] ?? 0, g.available), 0);
+  const pick = (key: string, delta: number, max: number) =>
+    setSelected((s) => ({ ...s, [key]: Math.max(0, Math.min(max, (s[key] ?? 0) + delta)) }));
   const [custom, setCustom] = useState("");
   const [people, setPeople] = useState(2);
   const [email, setEmail] = useState("");
@@ -170,7 +207,14 @@ function PayForm({ token, pendingCents, demo }: { token: string; pendingCents: n
   const [busy, setBusy] = useState(false);
 
   const amount =
-    mode === "all" ? pendingCents : mode === "split" ? Math.ceil(pendingCents / people) : parseEuros(custom);
+    mode === "all"
+      ? pendingCents
+      : mode === "items"
+        ? // Si alguien pagó antes una cantidad suelta, como mucho lo que queda
+          Math.min(itemsCents, pendingCents)
+        : mode === "split"
+          ? Math.ceil(pendingCents / people)
+          : parseEuros(custom);
   const invalid =
     mode === "custom" && custom.trim() !== ""
       ? !(amount > 0)
@@ -187,7 +231,15 @@ function PayForm({ token, pendingCents, demo }: { token: string; pendingCents: n
     setBusy(true);
     setError(null);
     try {
-      const { redirectUrl } = await publicApi.pay(token, amount, email.trim());
+      const items = groups.flatMap((g) => {
+        let left = Math.min(selected[g.key] ?? 0, g.available);
+        return g.lines.flatMap((l) => {
+          const qty = Math.min(left, l.available);
+          left -= qty;
+          return qty > 0 ? [{ lineId: l.lineId, qty }] : [];
+        });
+      });
+      const { redirectUrl } = await publicApi.pay(token, mode === "items" ? { items } : { amountCents: amount }, email.trim());
       window.location.href = redirectUrl;
     } catch (err) {
       setError((err as Error).message);
@@ -204,6 +256,45 @@ function PayForm({ token, pendingCents, demo }: { token: string; pendingCents: n
           <span>Todo lo pendiente</span>
           <strong>{euros(pendingCents)}</strong>
         </label>
+        {groups.length > 0 && (
+          <label className={`c-option${mode === "items" ? " active" : ""}`}>
+            <input type="radio" name="mode" checked={mode === "items"} onChange={() => setMode("items")} />
+            <span>Pagar solo lo mío</span>
+          </label>
+        )}
+        {mode === "items" && (
+          <div className="c-sub">
+            <p className="c-muted">Elige lo que has tomado:</p>
+            <ul className="c-items">
+              {groups.map((g) => {
+                const n = Math.min(selected[g.key] ?? 0, g.available);
+                return (
+                  <li key={g.key} className={n ? "picked" : undefined}>
+                    <button type="button" className="c-item-name" onClick={() => pick(g.key, 1, g.available)}>
+                      <span>{g.name}</span>
+                      <small>
+                        {euros(g.unitCents)}
+                        {g.available > 1 ? ` · quedan ${g.available}` : ""}
+                      </small>
+                    </button>
+                    <div className="c-stepper small">
+                      <button type="button" aria-label={`Quitar ${g.name}`} disabled={!n} onClick={() => pick(g.key, -1, g.available)}>
+                        −
+                      </button>
+                      <span aria-live="polite">{n}</span>
+                      <button type="button" aria-label={`Añadir ${g.name}`} disabled={n >= g.available} onClick={() => pick(g.key, 1, g.available)}>
+                        +
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p>
+              Lo tuyo: <strong>{euros(amount)}</strong>
+            </p>
+          </div>
+        )}
         <label className={`c-option${mode === "custom" ? " active" : ""}`}>
           <input type="radio" name="mode" checked={mode === "custom"} onChange={() => setMode("custom")} />
           <span>Otra cantidad</span>

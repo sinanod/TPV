@@ -5,7 +5,7 @@ import { requireAuth } from "../auth";
 import { emitEvent } from "../realtime";
 import { h, HttpError } from "../http";
 import { orderChanged } from "../cloud/sync";
-import { cancelEmptyOrder, OPEN_STATUSES, orderTotals, registerPayment, toCents } from "../billing";
+import { cancelEmptyOrder, OPEN_STATUSES, orderTotals, paidQtyByLine, registerPayment, toCents } from "../billing";
 import { publishPayment } from "../payments";
 import { printBill, printKitchenTickets } from "../printing/service";
 
@@ -15,7 +15,7 @@ ordersRouter.use(requireAuth);
 
 const orderInclude = {
   lines: { include: { product: true }, orderBy: { createdAt: "asc" as const } },
-  payments: { orderBy: { createdAt: "asc" as const } },
+  payments: { orderBy: { createdAt: "asc" as const }, include: { items: true } },
   invoice: { select: { id: true, uuid: true, numSerie: true, qrUrl: true } },
   table: { include: { zone: true } },
   waiter: true,
@@ -25,7 +25,15 @@ async function loadOrder(id: number) {
   const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
   if (!order) return null;
   const { totalCents, paidCents, pendingCents } = orderTotals(order);
-  return { ...order, total: totalCents / 100, paid: paidCents / 100, pending: pendingCents / 100 };
+  const paidQty = paidQtyByLine(order.payments);
+  return {
+    ...order,
+    // paidQty: unidades ya pagadas eligiendo artículos (para no volver a ofrecerlas)
+    lines: order.lines.map((l) => ({ ...l, paidQty: paidQty.get(l.id) ?? 0 })),
+    total: totalCents / 100,
+    paid: paidCents / 100,
+    pending: pendingCents / 100,
+  };
 }
 
 async function findOpenOrder(id: string) {
@@ -119,6 +127,9 @@ ordersRouter.delete(
     const line = await prisma.orderLine.findUnique({ where: { id: Number(req.params.lineId) } });
     if (!line || line.orderId !== order.id) throw new HttpError(404, "Línea no encontrada");
     if (line.status === "SENT") throw new HttpError(409, "No se puede borrar una línea ya enviada a cocina");
+    if (await prisma.paymentItem.count({ where: { orderLineId: line.id } })) {
+      throw new HttpError(409, "Este artículo ya está pagado: no se puede quitar");
+    }
 
     const current = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { lines: true, payments: true } });
     const { pendingCents } = orderTotals(current);
@@ -175,6 +186,12 @@ const paymentSchema = z.object({
   /** Solo efectivo: lo que entrega el cliente, para calcular el cambio */
   tendered: z.number().positive().optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
+  /** Cobro por artículos: el importe lo calcula el servidor */
+  items: z
+    .array(z.object({ lineId: z.number().int().positive(), qty: z.number().int().positive() }))
+    .min(1)
+    .max(200)
+    .optional(),
 });
 
 // Cobro (total o parcial) en la mesa. Al completar la cuenta se emite la
@@ -192,6 +209,7 @@ ordersRouter.post(
       tenderedCents: parsed.data.tendered === undefined ? undefined : toCents(parsed.data.tendered),
       email: parsed.data.email || null,
       waiterId: req.auth!.userId,
+      items: parsed.data.items,
     });
     const receiptPrint = await publishPayment(result);
     res.status(201).json({

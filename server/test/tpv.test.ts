@@ -320,6 +320,106 @@ describe("cobro en mesa", () => {
   });
 });
 
+describe("cobro por artículos", () => {
+  type Line = { id: number; productId: number; qty: number; paidQty: number };
+  const lineOf = async (orderId: number, productId: number): Promise<Line> =>
+    (await api("GET", `/orders/${orderId}`)).body.lines.find((l: Line) => l.productId === productId);
+
+  it("cada uno paga lo suyo; lo pagado no se vuelve a ofrecer y el último cierra la cuenta", async () => {
+    const orderId = await openWith(ids.table, [
+      { productId: products.caña, qty: 3 }, // 6,60
+      { productId: products.bravas, qty: 1 }, // 6,50
+      { productId: products.gintonic, qty: 1 }, // 9,00
+    ]);
+    const caña = await lineOf(orderId, products.caña);
+    const bravas = await lineOf(orderId, products.bravas);
+    const gin = await lineOf(orderId, products.gintonic);
+
+    // Ana: una caña y las bravas, con tarjeta
+    const ana = await api("POST", `/orders/${orderId}/payments`, {
+      method: "CARD",
+      items: [
+        { lineId: caña.id, qty: 1 },
+        { lineId: bravas.id, qty: 1 },
+      ],
+    });
+    expect(ana.status).toBe(201);
+    expect(ana.body.invoice).toBeNull();
+    expect(ana.body.order.pending).toBeCloseTo(13.4);
+    expect(ana.body.order.payments[0].items).toHaveLength(2);
+    expect((await lineOf(orderId, products.caña)).paidQty).toBe(1);
+
+    // Las bravas ya están pagadas: ni se pueden volver a cobrar ni quitar
+    const again = await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [{ lineId: bravas.id, qty: 1 }] });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toMatch(/ya está pagado/);
+    const tooMany = await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [{ lineId: caña.id, qty: 3 }] });
+    expect(tooMany.body.error).toMatch(/Solo quedan 2/);
+    expect((await api("DELETE", `/orders/${orderId}/lines/${bravas.id}`)).status).toBe(409);
+
+    // Luis: dos cañas en efectivo con cambio
+    const luis = await api("POST", `/orders/${orderId}/payments`, {
+      method: "CASH",
+      tendered: 5,
+      items: [{ lineId: caña.id, qty: 2 }],
+    });
+    expect(luis.body.change).toBeCloseTo(0.6);
+    expect(luis.body.order.pending).toBeCloseTo(9);
+
+    // El gin tonic cierra la cuenta y emite la factura con todo
+    const last = await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [{ lineId: gin.id, qty: 1 }] });
+    expect(last.body.invoice.numSerie).toMatch(/^T1-/);
+    expect(last.body.receiptPrint.ok).toBe(true);
+  });
+
+  it("tras un pago por importe, los artículos cuestan como mucho lo que queda", async () => {
+    const orderId = await openWith(ids.table, [{ productId: products.bravas, qty: 2 }]); // 13,00
+    await api("POST", `/orders/${orderId}/payments`, { method: "CARD", amount: 10 });
+    const bravas = await lineOf(orderId, products.bravas);
+    const res = await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [{ lineId: bravas.id, qty: 1 }] });
+    // Vale 6,50 pero solo quedaban 3,00: cobra 3,00 y cierra
+    expect(res.body.order.payments.at(-1).amount).toBeCloseTo(3);
+    expect(res.body.invoice).not.toBeNull();
+  });
+
+  it("rechaza artículos de otra cuenta o sin elegir nada", async () => {
+    const orderId = await openWith(ids.table, [{ productId: products.caña, qty: 1 }]);
+    const other = await openWith(ids.table2, [{ productId: products.tarta, qty: 1 }]);
+    const tarta = await lineOf(other, products.tarta);
+    expect((await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [{ lineId: tarta.id, qty: 1 }] })).status).toBe(400);
+    expect((await api("POST", `/orders/${orderId}/payments`, { method: "CARD", items: [] })).status).toBe(400);
+    await api("POST", `/orders/${orderId}/close`, { paymentMethod: "CASH" });
+    await api("POST", `/orders/${other}/close`, { paymentMethod: "CASH" });
+  });
+
+  it("un pago móvil por artículos aplica los que siguen pendientes", async () => {
+    const orderId = await openWith(ids.table, [
+      { productId: products.caña, qty: 2 },
+      { productId: products.tarta, qty: 1 },
+    ]);
+    const caña = await lineOf(orderId, products.caña);
+    const tarta = await lineOf(orderId, products.tarta);
+    // Mientras el cliente pagaba en el móvil, el camarero cobró una caña
+    await api("POST", `/orders/${orderId}/payments`, { method: "CASH", items: [{ lineId: caña.id, qty: 1 }] });
+    const online = await registerPayment(orderId, {
+      method: "ONLINE",
+      amountCents: 220 + 450,
+      onlinePaymentId: "op-items-1",
+      items: [
+        { lineId: caña.id, qty: 2 },
+        { lineId: tarta.id, qty: 1 },
+      ],
+    });
+    // Queda registrada una caña (la otra ya estaba) y la tarta; la cuenta se cierra
+    expect(online.invoiceId).not.toBeNull();
+    const items = await prisma.paymentItem.findMany({ where: { payment: { onlinePaymentId: "op-items-1" } } });
+    expect(items.map((i) => [i.orderLineId, i.qty]).sort()).toEqual([
+      [caña.id, 1],
+      [tarta.id, 1],
+    ].sort());
+  });
+});
+
 describe("pago del cliente desde su móvil", () => {
   it("se aplica una sola vez aunque llegue repetido, y el exceso queda para devolver", async () => {
     const orderId = await openWith(ids.table, [{ productId: products.bravas, qty: 1 }]); // 6,50

@@ -14,10 +14,10 @@ Qué incluye:
 
 - **Comandas por familias**: cada familia de productos tiene su impresora
   (barra, cocina…), de red o USB.
-- **Cobro por mesa**: entero o por partes (importe libre o a partes
-  iguales), efectivo con cambio o tarjeta, desde el TPV o desde Android; y
-  el cliente puede pagar desde su móvil con el QR de la mesa (pasarela de
-  demostración por ahora).
+- **Cobro por mesa**: entero o por partes (importe libre, a partes iguales
+  o eligiendo artículos), efectivo con cambio o tarjeta, desde el TPV o desde
+  Android; y el cliente puede pagar desde su móvil con el QR de la mesa,
+  también solo lo suyo (pasarela de demostración por ahora).
 - **Ticket por email** al cliente, con el QR tributario.
 - **Ticket con el logo** del restaurante y textos propios, ajustable desde
   el portal con vista previa y ticket de prueba.

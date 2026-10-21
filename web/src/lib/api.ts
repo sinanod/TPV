@@ -80,7 +80,15 @@ export const api = {
     request<Order & { prints: PrintResult[] }>(`/orders/${orderId}/send`, { method: "POST" }),
   addPayment: (
     orderId: number,
-    data: { method: "CASH" | "CARD"; amount: number; tendered?: number; email?: string },
+    data: {
+      method: "CASH" | "CARD";
+      /** Sin `items`: el importe a cobrar */
+      amount?: number;
+      /** Cobro por artículos: el servidor calcula el importe */
+      items?: { lineId: number; qty: number }[];
+      tendered?: number;
+      email?: string;
+    },
   ) => request<PaymentResponse>(`/orders/${orderId}/payments`, { method: "POST", body: JSON.stringify(data) }),
   printBill: (orderId: number) => request<PrintResult>(`/orders/${orderId}/print-bill`, { method: "POST" }),
   invoices: () => request<InvoiceListItem[]>("/invoices"),

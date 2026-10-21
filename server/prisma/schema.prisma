@@ -131,6 +131,7 @@ model OrderLine {
   note      String?
   status    String   @default("PENDING")
   createdAt DateTime @default(now())
+  paidItems PaymentItem[]
 }
 
 // Vinculación con el portal en la nube (una sola fila, id = 1)
@@ -184,6 +185,20 @@ model Payment {
   // cobrada o se pagó de más): el restaurante debe devolverla
   refundAmount    Float    @default(0)
   createdAt       DateTime @default(now())
+  // Artículos que paga, si se cobró eligiendo artículos (vacío = un importe)
+  items           PaymentItem[]
+}
+
+// Unidades de una línea pagadas en un cobro por artículos
+model PaymentItem {
+  id          Int       @id @default(autoincrement())
+  paymentId   Int
+  payment     Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  orderLineId Int
+  orderLine   OrderLine @relation(fields: [orderLineId], references: [id])
+  qty         Int
+
+  @@index([orderLineId])
 }
 
 // Factura simplificada (F2) emitida al cobrar la cuenta completa.

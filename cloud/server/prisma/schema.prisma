@@ -240,6 +240,9 @@ model OrderLine {
   unitPrice   Float
   note        String?
   status      String
+  // Id de la línea en el TPV y unidades ya pagadas eligiendo artículos
+  localId     Int?
+  paidQty     Int     @default(0)
 }
 
 model OrderPayment {
@@ -253,6 +256,8 @@ model OrderPayment {
   refundCents     Int      @default(0)
   onlinePaymentId String?
   createdAt       DateTime
+  // Artículos que pagó, si se cobró eligiendo artículos: [{ lineId, qty }]
+  items           Json?
 
   @@index([orderId])
 }
@@ -329,6 +334,8 @@ model OnlinePayment {
   orderLocalUuid   String
   amountCents      Int
   email            String?
+  // Si el cliente eligió qué paga: [{ lineId (id local), qty }]
+  items            Json?
   // CREATED | SUCCEEDED | FAILED | CANCELLED
   status           String      @default("CREATED")
   provider         String
